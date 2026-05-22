@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getStaticShift } from "@/lib/staticSchedule";
+import { WFMSyncButton } from "@/components/schedule/WFMSyncButton";
 
 export default function WorkSchedule() {
   const { user } = useAuth();
@@ -223,6 +224,7 @@ export default function WorkSchedule() {
           </p>
         </div>
         <div className="flex gap-2 self-start flex-wrap">
+          <WFMSyncButton onSyncComplete={() => setRefreshKey(k => k + 1)} />
           <Button onClick={() => setSitePeriodDialogOpen(true)} variant="outline" size="sm" className="gap-2">
             <Building className="h-4 w-4 text-indigo-500" />
             Set Site Period
