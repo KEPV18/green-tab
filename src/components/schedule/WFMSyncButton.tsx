@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
+import { RefreshCw, AlertCircle, CheckCircle2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 interface WFMSyncResult {
@@ -18,21 +17,60 @@ interface WFMSyncButtonProps {
   onSyncComplete?: () => void;
 }
 
-type AuthMethod = "cf_authorization" | "wfm_session";
+interface ShiftEntry {
+  date: string;
+  shift_start?: string | null;
+  shift_end?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  is_off?: boolean;
+  is_off_day?: boolean;
+  type?: string;
+  is_site?: boolean;
+  is_site_day?: boolean;
+  break_start?: string | null;
+  first_break_start?: string | null;
+  break_end?: string | null;
+  first_break_end?: string | null;
+  second_break_start?: string | null;
+  second_break_end?: string | null;
+  status?: string;
+  notes?: string | null;
+}
 
 export function WFMSyncButton({ onSyncComplete }: WFMSyncButtonProps) {
   const [open, setOpen] = useState(false);
-  const [token, setToken] = useState("");
-  const [authMethod, setAuthMethod] = useState<AuthMethod>("wfm_session");
+  const [jsonData, setJsonData] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WFMSyncResult | null>(null);
   const { user } = useAuth();
 
   const handleSync = async () => {
-    if (!token.trim()) {
-      toast.error(authMethod === "cf_authorization"
-        ? "Please paste the CF_Authorization token"
-        : "Please paste the wfm_session cookie value");
+    if (!jsonData.trim()) {
+      toast.error("Please paste the WFM schedule JSON data");
+      return;
+    }
+
+    let schedules: ShiftEntry[];
+    try {
+      const parsed = JSON.parse(jsonData.trim());
+      if (Array.isArray(parsed)) {
+        schedules = parsed;
+      } else if (parsed.schedules && Array.isArray(parsed.schedules)) {
+        schedules = parsed.schedules;
+      } else if (parsed.data && Array.isArray(parsed.data)) {
+        schedules = parsed.data;
+      } else {
+        toast.error("Could not find schedule array in the JSON. Expected an array or {schedules: [...] }");
+        return;
+      }
+    } catch {
+      toast.error("Invalid JSON. Please copy the raw JSON response from the WFM API.");
+      return;
+    }
+
+    if (schedules.length === 0) {
+      toast.error("No schedule entries found in the data");
       return;
     }
 
@@ -49,30 +87,17 @@ export function WFMSyncButton({ onSyncComplete }: WFMSyncButtonProps) {
         return;
       }
 
-      const body: Record<string, string> = {
-        user_id: user?.id || "",
-      };
-
-      if (authMethod === "cf_authorization") {
-        body.cf_token = token.trim();
-      } else {
-        body.wfm_session = token.trim();
-        // Also extract wfm_csrf if user provides both cookies
-        const csrfMatch = token.trim().match(/wfm_csrf=([^;]+)/);
-        if (csrfMatch) {
-          body.wfm_csrf = csrfMatch[1];
-          // Clean the token to just be the session value
-          body.wfm_session = token.trim().replace(/wfm_csfs=[^;]+;?\s*/g, "").trim();
-        }
-      }
-
       const response = await fetch("https://udbdvtcugpnrmtfipbzj.supabase.co/functions/v1/wfm-sync", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          user_id: user?.id || "",
+          schedules,
+          source: "browser-paste",
+        }),
       });
 
       const data = await response.json();
@@ -80,20 +105,21 @@ export function WFMSyncButton({ onSyncComplete }: WFMSyncButtonProps) {
       if (!response.ok) {
         setResult({
           success: false,
-          message: data.error || data.details || `Error ${response.status}: ${data.message || "Unknown error"}`,
+          message: data.error || `Error ${response.status}: ${data.message || "Unknown error"}`,
         });
         return;
       }
 
       setResult({
         success: true,
-        message: `Synced ${data.synced} shift entries for ${data.start} to ${data.end}`,
+        message: `Synced ${data.synced}/${data.total || schedules.length} shift entries`,
       });
       toast.success(`WFM sync complete — ${data.synced} entries updated`);
       onSyncComplete?.();
-      setToken("");
-    } catch (err: any) {
-      setResult({ success: false, message: err.message || "Network error" });
+      setJsonData("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setResult({ success: false, message: msg });
       toast.error("WFM sync failed");
     } finally {
       setLoading(false);
@@ -113,102 +139,77 @@ export function WFMSyncButton({ onSyncComplete }: WFMSyncButtonProps) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RefreshCw className="h-5 w-5 text-primary" />
               Sync from WFM
             </DialogTitle>
             <DialogDescription>
-              Pull your shift schedule from WFM (wfm.tabby.ai) into Green Tab.
+              Pull your shift schedule from WFM into Green Tab.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Auth Method Selection */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Authentication Method</Label>
-              <RadioGroup
-                value={authMethod}
-                onValueChange={(v) => { setAuthMethod(v as AuthMethod); setToken(""); setResult(null); }}
-                className="flex gap-4"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="wfm_session" id="wfm_session" />
-                  <Label htmlFor="wfm_session" className="text-xs cursor-pointer">
-                    wfm_session (Recommended)
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="cf_authorization" id="cf_authorization" />
-                  <Label htmlFor="cf_authorization" className="text-xs cursor-pointer">
-                    CF_Authorization
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
-
-            {/* Instructions */}
-            {authMethod === "cf_authorization" ? (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  1. Open{" "}
-                  <a href="https://wfm.tabby.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                    wfm.tabby.ai
-                  </a>{" "}
-                  and log in with Google + 2FA
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  2. Open DevTools (F12) → Application → Cookies → find{" "}
-                  <code className="bg-muted px-1 py-0.5 rounded text-[11px]">CF_Authorization</code>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  3. Copy the token value and paste it below
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  1. Open{" "}
-                  <a href="https://wfm.tabby.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                    wfm.tabby.ai
+            {/* Step-by-step instructions */}
+            <div className="space-y-2 p-3 bg-muted rounded-md text-sm">
+              <p className="font-medium">📋 How to get WFM data:</p>
+              <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
+                <li>
+                  Open{" "}
+                  <a href="https://wfm.tabby.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">
+                    wfm.tabby.ai <ExternalLink className="h-3 w-3" />
                   </a>{" "}
                   and log in with your company Google account
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  2. Open DevTools (F12) → Application → Cookies →{" "}
-                  <code className="bg-muted px-1 py-0.5 rounded text-[11px]">wfm.tabby.ai</code>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  3. Copy the <code className="bg-muted px-1 py-0.5 rounded text-[11px]">wfm_session</code> cookie value (the long JWT starting with <code className="bg-muted px-1 py-0.5 rounded text-[11px]">eyJ...</code>)
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  4. Also copy <code className="bg-muted px-1 py-0.5 rounded text-[11px]">wfm_csrf</code> if available. Paste both separated by a semicolon, or just the session value.
-                </p>
-              </div>
-            )}
+                </li>
+                <li>Open DevTools (F12) → Network tab</li>
+                <li>Reload the page or navigate to your schedule</li>
+                <li>Find the request to <code className="bg-background px-1 py-0.5 rounded text-[10px]">/api/schedules</code></li>
+                <li>Click on it → Response tab → Copy the JSON response</li>
+                <li>Paste the JSON below</li>
+              </ol>
+            </div>
 
-            {/* Token Input */}
+            {/* Quick API URLs */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">
+                Direct API links (open while logged in to WFM):
+              </Label>
+              <div className="flex gap-2">
+                <a
+                  href="https://wfm.tabby.ai/api/schedules?year=2026&month=5"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary underline inline-flex items-center gap-1"
+                >
+                  May 2026 <ExternalLink className="h-3 w-3" />
+                </a>
+                <a
+                  href="https://wfm.tabby.ai/api/schedules?year=2026&month=6"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary underline inline-flex items-center gap-1"
+                >
+                  June 2026 <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Open these links in WFM's browser tab — the JSON will appear directly.
+              </p>
+            </div>
+
+            {/* JSON Input */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
-                {authMethod === "cf_authorization" ? "CF_Authorization Token" : "wfm_session Cookie"}
+                Schedule Data (JSON)
               </Label>
               <Textarea
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder={
-                  authMethod === "cf_authorization"
-                    ? "Paste the CF_Authorization cookie value here..."
-                    : "Paste the wfm_session JWT value here... (e.g. eyJhbGci...)"
-                }
-                rows={3}
+                value={jsonData}
+                onChange={(e) => setJsonData(e.target.value)}
+                placeholder='Paste the WFM API response JSON here...&#10;&#10;Example: [{"date":"2026-05-01","start_time":"09:00","end_time":"17:00","type":"shift"},...]'
+                rows={6}
                 className="font-mono text-xs"
               />
-              {authMethod === "wfm_session" && (
-                <p className="text-[10px] text-muted-foreground">
-                  ⏱ The wfm_session cookie expires every ~24 hours. You'll need to re-copy it each time.
-                </p>
-              )}
             </div>
 
             {/* Result */}
@@ -233,7 +234,7 @@ export function WFMSyncButton({ onSyncComplete }: WFMSyncButtonProps) {
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Close
             </Button>
-            <Button onClick={handleSync} disabled={loading || !token.trim()}>
+            <Button onClick={handleSync} disabled={loading || !jsonData.trim()}>
               {loading ? (
                 <>
                   <RefreshCw className="h-4 w-4 animate-spin mr-2" />
