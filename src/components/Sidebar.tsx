@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Settings, LogOut, ChevronLeft, ChevronRight, Calendar, BarChart3, NotebookText, ListChecks } from "lucide-react";
+import { Settings, LogOut, ChevronLeft, ChevronRight, Calendar, BarChart3, NotebookText, ListChecks, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -57,8 +57,9 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
   ];
 
   const pageLinks = [
-    { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Team Dashboard", href: "/team-dashboard", icon: Trophy },
     { name: "Work Schedule", href: "/work-schedule", icon: Calendar },
+    { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   const handleTabClick = (tab: string) => {

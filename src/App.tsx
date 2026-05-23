@@ -13,6 +13,7 @@ import NotFound from "./pages/NotFound";
 import AppLayout from "./components/AppLayout";
 import Settings from "./pages/Settings";
 import WorkSchedule from "./pages/WorkSchedule";
+import TeamLeaderDashboard from "./pages/TeamLeaderDashboard";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,16 @@ const App = () => (
                   <ProtectedRoute>
                     <AppLayout>
                       <WorkSchedule />
+                    </AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/team-dashboard"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout>
+                      <TeamLeaderDashboard />
                     </AppLayout>
                   </ProtectedRoute>
                 }
