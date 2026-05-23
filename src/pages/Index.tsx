@@ -79,6 +79,14 @@ interface TodayStats {
   bad: number;
 }
 
+interface LeaderboardData {
+  csat_count: number;
+  dsat_count: number;
+  csat_percentage: number;
+  rank_in_team: number;
+  team_size: number;
+}
+
 const Index = () => {
   const { user } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -128,6 +136,9 @@ const Index = () => {
   
   // Today's stats for daily target
   const [todayStats, setTodayStats] = useState<TodayStats>({ good: 0, bad: 0 });
+  
+  // Team leaderboard data for current user
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   
   const [data, setData] = useState<MonthlyData>({
     good: 0,
@@ -256,6 +267,32 @@ const Index = () => {
     };
     loadShiftTime();
   }, [user]);
+
+  // Load team leaderboard data for current user (by email)
+  useEffect(() => {
+    const loadLeaderboardData = async () => {
+      if (!user?.email) return;
+      try {
+        const { data, error } = await supabase
+          .from('team_leaderboard')
+          .select('csat_count, dsat_count, csat_percentage, rank_in_team, team_size')
+          .eq('agent_email', user.email)
+          .eq('year', selectedYear)
+          .eq('month', selectedMonth + 1)
+          .maybeSingle();
+        
+        if (!error && data) {
+          setLeaderboardData(data as LeaderboardData);
+        } else {
+          setLeaderboardData(null);
+        }
+      } catch (err) {
+        console.error('Error loading leaderboard data:', err);
+        setLeaderboardData(null);
+      }
+    };
+    loadLeaderboardData();
+  }, [user?.email, selectedYear, selectedMonth]);
 
   // Load data from database when month/year changes or user changes
   useEffect(() => {
@@ -1353,8 +1390,8 @@ const Index = () => {
     };
   }, [selectedMonth, selectedYear, totalGood, totalBad, data.karmaBad]);
 
-  const totalSurveys = useMemo(() => totalGood + totalBad, [totalGood, totalBad]);
-  const csat = useMemo(() => totalSurveys > 0 ? (totalGood / totalSurveys) * 100 : 0, [totalGood, totalSurveys]);
+  const totalSurveys = useMemo(() => leaderboardData ? leaderboardData.csat_count + leaderboardData.dsat_count : totalGood + totalBad, [leaderboardData, totalGood, totalBad]);
+  const csat = useMemo(() => leaderboardData ? leaderboardData.csat_percentage : (totalSurveys > 0 ? (totalGood / totalSurveys) * 100 : 0), [leaderboardData, totalGood, totalSurveys]);
   
   const totalKarmaBase = useMemo(() => totalGood + totalBad + data.karmaBad, [totalGood, totalBad, data.karmaBad]);
   const karma = useMemo(() => totalKarmaBase > 0 ? (totalGood / totalKarmaBase) * 100 : 0, [totalGood, totalKarmaBase]);
@@ -1576,7 +1613,10 @@ const Index = () => {
               <PercentageDisplay
                 title="CSAT"
                 percentage={csat}
-                subtitle={`${totalGood} / ${totalSurveys}`}
+                subtitle={leaderboardData 
+                  ? `${leaderboardData.csat_count} / ${leaderboardData.csat_count + leaderboardData.dsat_count}`
+                  : `${totalGood} / ${totalSurveys}`
+                }
               />
             </div>
 
@@ -1637,7 +1677,7 @@ const Index = () => {
               <div className="grid grid-cols-3 gap-2">
                 <MetricCard
                   title="Good"
-                  value={totalGood}
+                  value={leaderboardData ? leaderboardData.csat_count : totalGood}
                   onIncrement={() => updateMetric("good", true)}
                   onDecrement={() => updateMetric("good", false)}
                   color="success"
@@ -1646,7 +1686,7 @@ const Index = () => {
                 />
                 <MetricCard
                   title="DSAT"
-                  value={totalBad}
+                  value={leaderboardData ? leaderboardData.dsat_count : totalBad}
                   onIncrement={() => updateMetric("bad", true)}
                   onDecrement={() => updateMetric("bad", false)}
                   color="destructive"
