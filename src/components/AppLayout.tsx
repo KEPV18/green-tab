@@ -109,17 +109,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <header className="md:hidden border-b border-border glass sticky top-0 z-40">
           <div className="px-3 py-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              {/* Compact Orbit logo */}
+              {/* Compact Green Tab logo */}
               <div className="relative h-6 w-6 flex items-center justify-center">
-                <div className="absolute inset-0 rounded-full bg-primary/15" />
+                <div className="absolute inset-0 rounded-md bg-green-500/15" />
                 <svg viewBox="0 0 28 28" className="h-6 w-6" fill="none">
-                  <circle cx="14" cy="14" r="4" fill="hsl(var(--primary))" />
-                  <ellipse cx="14" cy="14" rx="12" ry="5" stroke="hsl(var(--primary))" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="2 2" className="animate-orbit-spin" style={{transformOrigin:'14px 14px'}} />
-                  <circle cx="14" cy="2" r="2" fill="hsl(var(--primary-glow))" className="animate-orbit-spin" style={{transformOrigin:'14px 14px'}} />
+                  <rect x="4" y="3" width="20" height="22" rx="3" stroke="hsl(142 71% 45%)" strokeWidth="1.5" />
+                  <line x1="9" y1="9" x2="19" y2="9" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="9" y1="14" x2="16" y2="14" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </div>
-              <span className="font-orbit text-sm text-gradient-orbit">
-                Orbit
+              <span className="font-orbit text-sm text-green-400">
+                Green Tab
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -212,17 +212,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {showLoader && (
         <div className="fixed inset-0 bg-background/90 backdrop-blur-lg z-[60] flex items-center justify-center">
           <div className="flex flex-col items-center gap-6">
-            {/* Orbit Animated Logo */}
+            {/* Green Tab Animated Logo */}
             <div className="relative h-20 w-20 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping" style={{animationDuration:'2s'}} />
+              <div className="absolute inset-0 rounded-xl bg-green-500/10 animate-pulse" style={{animationDuration:'2s'}} />
               <svg viewBox="0 0 56 56" className="h-20 w-20 animate-orbit-pulse" fill="none">
-                <circle cx="28" cy="28" r="8" fill="hsl(var(--primary))" />
-                <ellipse cx="28" cy="28" rx="24" ry="10" stroke="hsl(var(--primary))" strokeWidth="2" strokeOpacity="0.5" strokeDasharray="4 4" className="animate-orbit-spin" style={{transformOrigin:'28px 28px'}} />
-                <circle cx="28" cy="4" r="4" fill="hsl(var(--primary-glow))" className="animate-orbit-spin" style={{transformOrigin:'28px 28px'}} />
+                <rect x="8" y="6" width="40" height="44" rx="6" stroke="hsl(142 71% 45%)" strokeWidth="2" />
+                <line x1="18" y1="18" x2="38" y2="18" stroke="hsl(142 71% 45%)" strokeWidth="2" strokeLinecap="round" />
+                <line x1="18" y1="28" x2="32" y2="28" stroke="hsl(142 71% 45%)" strokeWidth="2" strokeLinecap="round" />
+                <line x1="18" y1="38" x2="26" y2="38" stroke="hsl(142 71% 45%)" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </div>
             <div className="text-center space-y-1">
-              <p className="font-orbit text-2xl text-gradient-orbit">Orbit</p>
+              <p className="font-orbit text-2xl text-green-400">Green Tab</p>
               <p className="text-xs text-muted-foreground">Loading your workspace…</p>
             </div>
           </div>

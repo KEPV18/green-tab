@@ -156,10 +156,10 @@ const Auth = () => {
       <Card className="w-full max-w-md relative z-10 shadow-xl border-border/50 backdrop-blur-sm">
         <CardHeader className="text-center space-y-2">
           <CardTitle className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Big Brother
+            Green Tab
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            The big brother who will care for you at work and help you
+            Your smart companion that tracks your work and helps you thrive
           </CardDescription>
         </CardHeader>
         <CardContent>

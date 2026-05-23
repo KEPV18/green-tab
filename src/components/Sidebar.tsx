@@ -75,17 +75,18 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
       <div className={cn("px-4 py-5 border-b border-sidebar-border flex items-center", collapsed ? "justify-center" : "justify-between")}>
       {!collapsed && (
           <div className="flex items-center gap-2.5">
-            {/* Orbit animated logo mark */}
+            {/* Green Tab logo mark */}
             <div className="relative h-7 w-7 flex items-center justify-center shrink-0">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/30 to-primary/5" />
+              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-green-500/30 to-green-500/5" />
               <svg viewBox="0 0 28 28" className="h-7 w-7" fill="none">
-                <circle cx="14" cy="14" r="4" fill="hsl(var(--primary))" />
-                <ellipse cx="14" cy="14" rx="12" ry="5" stroke="hsl(var(--primary))" strokeWidth="1.5" strokeOpacity="0.6" strokeDasharray="2 2" className="animate-orbit-spin" style={{transformOrigin:'14px 14px'}} />
-                <circle cx="14" cy="2" r="2" fill="hsl(var(--primary-glow))" className="animate-orbit-spin" style={{transformOrigin:'14px 14px'}} />
+                <rect x="4" y="3" width="20" height="22" rx="3" stroke="hsl(142 71% 45%)" strokeWidth="1.5" />
+                <line x1="9" y1="9" x2="19" y2="9" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="9" y1="14" x2="16" y2="14" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="9" y1="19" x2="13" y2="19" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
             </div>
-            <h1 className="text-lg font-orbit text-gradient-orbit whitespace-nowrap tracking-tight">
-              Orbit
+            <h1 className="text-lg font-orbit text-green-400 whitespace-nowrap tracking-tight">
+              Green Tab
             </h1>
           </div>
         )}
