@@ -18,6 +18,19 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
   const { user, signOut } = useAuth();
   const [metrics, setMetrics] = useState<{ totalGood: number; totalBad: number; karmaBad: number; kpiScore: number }>({ totalGood: 0, totalBad: 0, karmaBad: 0, kpiScore: 0 });
   const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
+
+  // Computed CSAT values: use sheet data when available
+  const csatDisplay = useMemo(() => {
+    const sheetCsat = mySheetRow && mySheetRow.csat !== null ? mySheetRow.csat : null;
+    const localTotal = metrics.totalGood + metrics.totalBad;
+    const localPct = localTotal > 0 ? (metrics.totalGood / localTotal) * 100 : 0;
+    const pct = sheetCsat !== null ? sheetCsat : localPct;
+    const good = sheetCsat !== null ? Math.round(sheetCsat) : metrics.totalGood;
+    const bad = sheetCsat !== null ? Math.round(100 - sheetCsat) : metrics.totalBad;
+    const isSheet = sheetCsat !== null;
+    return { pct, good, bad, isSheet };
+  }, [mySheetRow, metrics.totalGood, metrics.totalBad]);
+
   const [activeTab, setActiveTab] = useState(() => {
     try { return localStorage.getItem("ktb_active_tab") || "overview"; } catch { return "overview"; }
   });

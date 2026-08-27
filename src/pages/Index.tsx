@@ -10,6 +10,7 @@ import { QuickActionsBar } from "@/components/QuickActionsBar";
 
 import { MetricCard } from "@/components/MetricCard";
 import { PercentageDisplay } from "@/components/PercentageDisplay";
+import { fetchTeamData, findMyRow, type TeamMemberRow, type TeamData } from "@/lib/googleSheets";
 import { TicketsTable, Ticket } from "@/components/TicketsTable";
 // Removed imports: ChannelAnalytics, MonthComparison, FCRMetric, BestProductiveTime, PhoneBonusKPI, SmartKPITips, StreaksMilestones, DailyKPITarget, ManualProductivityCard, ThreeMonthPerformance
 import { MonthSelector } from "@/components/MonthSelector";
