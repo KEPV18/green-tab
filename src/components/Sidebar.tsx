@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Settings, LogOut, ChevronLeft, ChevronRight, Calendar, BarChart3, NotebookText, ListChecks, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchTeamData, findMyRow, type TeamMemberRow } from "@/lib/googleSheets";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { GoalsSection } from "@/components/GoalsSection";
@@ -16,6 +17,7 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
   const location = useLocation();
   const { signOut } = useAuth();
   const [metrics, setMetrics] = useState<{ totalGood: number; totalBad: number; karmaBad: number; kpiScore: number }>({ totalGood: 0, totalBad: 0, karmaBad: 0, kpiScore: 0 });
+  const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
   const [activeTab, setActiveTab] = useState(() => {
     try { return localStorage.getItem("ktb_active_tab") || "overview"; } catch { return "overview"; }
   });
@@ -35,6 +37,19 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
       window.removeEventListener("storage", storageHandler);
     };
   }, []);
+
+  // Fetch team data to get sheet CSAT for sidebar
+  useEffect(() => {
+    if (!user) return;
+    fetchTeamData().then((td) => {
+      if (td && td.members.length > 0) {
+        const row = findMyRow(td, user.email, user.displayName);
+        setMySheetRow(row);
+      }
+    }).catch(() => {
+      // Silently fail - sheet data is supplementary
+    });
+  }, [user]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -109,8 +124,7 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
                   <TooltipTrigger asChild>
                     <div className="flex flex-col items-center gap-1 py-2">
                       {(() => {
-                        const csatTotal = metrics.totalGood + metrics.totalBad;
-                        const csatPct = csatTotal > 0 ? (metrics.totalGood / csatTotal) * 100 : 100;
+                        const csatPct = csatDisplay.pct;
                         const kpiPct = metrics.kpiScore;
                         const getColor = (pct: number) => pct >= 95 ? 'text-success stroke-success' : pct >= 75 ? 'text-primary stroke-primary' : 'text-warning stroke-warning';
                         const circumference = 2 * Math.PI * 8;
@@ -135,7 +149,7 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
                   </TooltipTrigger>
                   <TooltipContent side="right">
                     <div className="text-xs space-y-1">
-                      <div>CSAT: {(() => { const t = metrics.totalGood + metrics.totalBad; return t > 0 ? ((metrics.totalGood / t) * 100).toFixed(1) : "100"; })()}%</div>
+                      <div>CSAT: {csatDisplay.pct.toFixed(1)}%{csatDisplay.isSheet ? ' (Sheet)' : ''}</div>
                       <div>KPI: {metrics.kpiScore.toFixed(0)}%</div>
                     </div>
                   </TooltipContent>
@@ -144,8 +158,8 @@ export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
             ) : (
               <div className="w-full space-y-1">
                 <GoalsSection
-                  currentValue={metrics.totalGood}
-                  totalNegatives={metrics.totalBad}
+                  currentValue={csatDisplay.good}
+                  totalNegatives={csatDisplay.bad}
                   metricName="CSAT"
                   targets={[88, 90, 95]}
                   variant="sidebar"

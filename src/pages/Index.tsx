@@ -207,6 +207,10 @@ const Index = () => {
 
   const [includeKarmaInCSAT] = useState<boolean>(false);
 
+  // Sheet metrics from team data
+  const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
+  const [teamData, setTeamData] = useState<TeamData | null>(null);
+
   // Available months for selection (last 12 months)
   const availableMonthsForComparison = useMemo(() => {
     const result: Array<{ month: number; year: number; label: string }> = [];
@@ -282,6 +286,20 @@ const Index = () => {
       loadPreviousMonthData();
     }
   }, [selectedMonth, selectedYear, user]);
+
+  // Fetch team data from Supabase to get sheet metrics
+  useEffect(() => {
+    if (!user) return;
+    fetchTeamData().then((td) => {
+      setTeamData(td);
+      if (td && td.members.length > 0) {
+        const row = findMyRow(td, user.email, user.displayName);
+        setMySheetRow(row);
+      }
+    }).catch(() => {
+      // Silently fail - sheet data is supplementary
+    });
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -1200,17 +1218,109 @@ const Index = () => {
               />
               <PercentageDisplay
                 title="CSAT"
-                percentage={csat}
-                subtitle={`${totalGood} / ${totalSurveys}`}
-                floorInfo={floorAverages ? formatFloorAvg(floorAverages.csat) : undefined}
+                percentage={mySheetRow && mySheetRow.csat !== null ? mySheetRow.csat : csat}
+                subtitle={mySheetRow && mySheetRow.csat !== null ? `${mySheetRow.csat.toFixed(1)}% from Sheet` : `${totalGood} / ${totalSurveys}`}
+                floorInfo={mySheetRow && mySheetRow.csat !== null ? formatFloorAvg({ yourValue: mySheetRow.csat, floorAvg: mySheetRow.floorAvgCsat, diff: mySheetRow.csat - mySheetRow.floorAvgCsat, status: mySheetRow.csat >= mySheetRow.floorAvgCsat ? "above" : "below" }) : (floorAverages ? formatFloorAvg(floorAverages.csat) : undefined)}
               />
             </div>
 
-            {/* Monitoring Section: Counters as compact row (READ-ONLY from sheet) */}
+            {/* My Sheet Metrics — real numbers from the team dashboard */}
+            {mySheetRow && (
+              <div className="space-y-2">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  📊 My Metrics (from Sheet)
+                </h3>
+                <div className="grid grid-cols-4 gap-2">
+                  <MetricCard
+                    title="CSAT"
+                    value={mySheetRow.csat !== null ? Number(mySheetRow.csat.toFixed(1)) : 0}
+                    color="primary"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Productivity"
+                    value={mySheetRow.productivity !== null ? Number(mySheetRow.productivity.toFixed(1)) : 0}
+                    color="success"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="ABT"
+                    value={mySheetRow.aht !== null ? Number(mySheetRow.aht.toFixed(1)) : 0}
+                    color="warning"
+                    icon={AlertTriangle}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Close Rate"
+                    value={mySheetRow.closeRate !== null ? Number(mySheetRow.closeRate.toFixed(1)) : 0}
+                    color="success"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <MetricCard
+                    title="FCR"
+                    value={mySheetRow.fcr !== null ? Number(mySheetRow.fcr.toFixed(1)) : 0}
+                    color="primary"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Adherence"
+                    value={mySheetRow.adherence !== null ? Number(mySheetRow.adherence.toFixed(1)) : 0}
+                    color="success"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="IRT"
+                    value={mySheetRow.irtReplier !== null ? Number(mySheetRow.irtReplier.toFixed(1)) : 0}
+                    color="primary"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Occ."
+                    value={mySheetRow.occupancy !== null ? Number(mySheetRow.occupancy.toFixed(1)) : 0}
+                    color="success"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <MetricCard
+                    title="Escalation"
+                    value={mySheetRow.escalationRate !== null ? Number(mySheetRow.escalationRate.toFixed(1)) : 0}
+                    color="destructive"
+                    icon={ThumbsDown}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="De-escalation"
+                    value={mySheetRow.deescalationRate !== null ? Number(mySheetRow.deescalationRate.toFixed(1)) : 0}
+                    color="success"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Utilization"
+                    value={mySheetRow.utilization !== null ? Number(mySheetRow.utilization.toFixed(1)) : 0}
+                    color="primary"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Local Tracking: Counters (user-entered data) */}
             <div className="space-y-2">
               <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                 <Lock className="h-3 w-3 text-muted-foreground/50" />
-                Monitoring (from Sheet)
+                My Tracking (local)
               </h3>
               <div className="grid grid-cols-3 gap-2">
                 <MetricCard
