@@ -9,35 +9,45 @@
  *
  * MAPPING DOCUMENTATION (Source → DB → Frontend):
  * ─────────────────────────────────────────────────────────────────
- * Google Sheet "CSAT %" (Tab 0 Col 2)          → csat              → CSAT
- * Google Sheet "Productivity 8-hrs" (Sheet19)   → productivity      → Productivity
- * Google Sheet "FCR, %" (Tab 0 Col 8)           → fcr               → FCR
- * Google Sheet "Average basket time" (Sheet19)   → chat_aht         → ABT (Average Basket Time)
- * Google Sheet "Closed tickets, %" (Tab 0 Col 8) → closed_tickets_pct → Close Rate ⚠️ NOT "Closed After Resolution"
- * Google Sheet "Average handling time" (Sheet19) → chat_handling_time → Avg Handling Time
- * Google Sheet "Adherence, %" (Sheet19)          → adherence         → Adherence
- * Google Sheet "IRT 2 replier" (Sheet19)         → irt_replier       → IRT
- * Google Sheet "Closed after resolution, %"      → closed_after_resolution → Closed After Resolution (SEPARATE from Close Rate)
- * Google Sheet "Escalation rate %" (Sheet19)     → escalation_rate   → Escalation Rate
- * Google Sheet "Deescalation rate %" (Tab 0/19)  → deescalation_rate → De-escalation Rate
- * Google Sheet "Occupancy daily, %" (Sheet19)    → occupancy         → Occupancy
- * Google Sheet "Concurrency" (Sheet19)            → concurrency       → Concurrency
- * Google Sheet "Average group basket time" (Sheet19) → avg_group_basket_time → Avg Group Basket Time
- * Google Sheet "Shrinkage - agent - unplanned" (Sheet19) → shrinkage  → Shrinkage
- * Google Sheet "Utilization daily, %" (Sheet19)   → utilization       → Utilization
- * Google Sheet "Genesys Inbound AHT + ACW"       → genesys_aht       → Genesys AHT (voice, NOT chat)
+ * Google Sheet "CSAT %" (Tab 0 Col 2)            → csat                      → CSAT
+ * Google Sheet "Productivity 8-hrs" (Sheet19)    → productivity               → Productivity
+ * Google Sheet "Escalation rate %" (Sheet19)      → escalation_rate            → Escalation Rate
+ * Google Sheet "Adherence, %" (Sheet19)           → adherence                  → Adherence
+ * Google Sheet "Average basket time" (Sheet19)     → chat_aht                   → ABT (Average Basket Time)
+ * Google Sheet "IRT 2 replier" (Sheet19)           → irt_replier                → IRT 2 Replier
+ * Google Sheet "FCR, %" (Tab 0 Col 8)             → fcr                        → FCR
+ * Google Sheet "Closed after resolution, %"         → closed_after_resolution    → Closed After Resolution
+ * Google Sheet "Break exceed" (Sheet19)            → break_exceed               → Break Exceed
+ * Google Sheet "Idle time" (Sheet19)               → idle_time                  → Idle Time
+ * Google Sheet "Deescalation rate %" (Tab 0/19)    → deescalation_rate          → De-escalation Rate
+ * Google Sheet "Occupancy daily, %" (Sheet19)       → occupancy                  → Occupancy
+ * Google Sheet "Average group basket time" (Sheet19) → avg_group_basket_time      → Avg Group Basket Time
+ * Google Sheet "Closed tickets, %" (Tab 0 Col 8)   → closed_tickets_pct          → Close Rate
  *
  * ⚠️ CRITICAL: Close Rate = "Closed tickets, %" = closed_tickets_pct
  *    NOT "Closed After Resolution" = closed_after_resolution
  *    These are DIFFERENT metrics.
  *
+ * RANKING: CSAT % only, highest → lowest.
+ * FLOOR AVERAGES: Computed over active Chat team members only (4 excluded).
+ *
+ * RANKING DIRECTIONS:
+ * ─────────────────────────────────────────────────────────────────
+ * Higher is better: CSAT, Productivity, FCR, Close Rate, Adherence,
+ *   De-escalation Rate, Occupancy, Utilization, Closed After Resolution
+ * Lower is better: ABT, Escalation Rate, IRT, Break Exceed, Idle Time,
+ *   Chat Handling Time, Avg Group Basket Time, Shrinkage, Concurrency
+ *
  * TEAM FILTERING:
  * ─────────────────────────────────────────────────────────────────
- * The Chat Team ranking EXCLUDES:
+ * EXCLUDED from Chat Team ranking:
  * - Abdallah Abdallah (abdallah.abdallah@tabby.ai) — PHONE only
  * - Mohamed Mohamed (mohamed.mohamed.27@tabby.ai) — CONSULTATION team
  * - Ahmed Elkhodary (ahmed.radwan@tabby.ai) — TERMINATED
  * - Abdullah Riad (abdullah.mohamed@tabby.ai) — TERMINATED
+ *
+ * NEVER DISPLAY: Bamboo ID, Queue, ID_Name, Batch, Citrix user
+ * IDENTIFY AGENTS BY: Email only (except logged-in user → use display name)
  */
 
 import { createClient, Client } from "@supabase/supabase-js";
@@ -46,36 +56,48 @@ import { readJSON, writeJSON } from "./store";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TeamMemberRow {
-  name: string;
   email: string;
-  bambooId: string | null;
-  // Primary ranking metrics
+  name: string;
+  // Primary ranking metric
+  csat: number | null;             // CSAT %
   productivity: number | null;     // Productivity 8-hrs
-  csat: number | null;             // CSAT % (percentage, NOT raw count)
-  aht: number | null;              // ABT = Average Basket Time (lower is better)
-  closeRate: number | null;         // Close Rate = "Closed tickets, %" (NOT "Closed After Resolution")
-  // Additional metrics
-  fcr: number | null;              // FCR %
-  chatAht: number | null;          // Same as aht (for compatibility)
-  chatHandlingTime: number | null; // Average Handling Time
-  genesysAht: number | null;       // Voice/call AHT (always null currently)
+  escalationRate: number | null;   // Escalation Rate %
   adherence: number | null;        // Adherence %
-  irtReplier: number | null;       // IRT 2 Replier
-  closedAfterResolution: number | null; // Closed After Resolution % (SEPARATE from Close Rate)
-  escalationRate: number | null;    // Escalation Rate %
+  aht: number | null;              // ABT = Average Basket Time (lower is better)
+  irtReplier: number | null;       // IRT 2 Replier (lower is better)
+  fcr: number | null;              // FCR %
+  closedAfterResolution: number | null; // Closed After Resolution %
+  breakExceed: number | null;      // Break Exceed (lower is better)
+  idleTime: number | null;          // Idle Time (lower is better)
   deescalationRate: number | null;  // De-escalation Rate %
-  occupancy: number | null;        // Occupancy %
-  concurrency: number | null;      // Concurrency
-  avgGroupBasketTime: number | null; // Average Group Basket Time
-  shrinkage: number | null;        // Shrinkage %
-  utilization: number | null;      // Utilization %
-  // Computed
-  overallScore: number | null;
-  // Floor averages
+  occupancy: number | null;        // Occupancy daily %
+  avgGroupBasketTime: number | null; // Average Group Basket Time (lower is better)
+  closeRate: number | null;         // Close Rate = "Closed tickets, %"
+  // Additional metrics kept for compatibility but not in main display
+  chatAht: number | null;          // Same as aht
+  chatHandlingTime: number | null;
+  genesysAht: number | null;
+  concurrency: number | null;
+  shrinkage: number | null;
+  utilization: number | null;
+  bambooId: string | null;         // kept for data, NEVER displayed to user
+  // Computed rankings (per-metric rank among chat team)
+  rankCsat: number | null;
+  // Floor averages (all metrics)
   floorAvgProductivity: number;
   floorAvgCsat: number;
   floorAvgAht: number;
   floorAvgCloseRate: number;
+  floorAvgFcr: number;
+  floorAvgEscalationRate: number;
+  floorAvgAdherence: number;
+  floorAvgIrtReplier: number;
+  floorAvgClosedAfterResolution: number;
+  floorAvgDeescalationRate: number;
+  floorAvgOccupancy: number;
+  floorAvgAvgGroupBasketTime: number;
+  floorAvgBreakExceed: number;
+  floorAvgIdleTime: number;
 }
 
 export interface TeamData {
@@ -88,15 +110,22 @@ export interface TeamData {
     aht: number;
     closeRate: number;
     fcr: number;
+    escalationRate: number;
+    adherence: number;
+    irtReplier: number;
+    closedAfterResolution: number;
+    deescalationRate: number;
+    occupancy: number;
+    avgGroupBasketTime: number;
+    breakExceed: number;
+    idleTime: number;
   };
 }
 
 // ─── Team Filtering ────────────────────────────────────────────────────────────
 
 /**
- * Emails excluded from the Chat Team ranking.
- * These agents are either PHONE-only, CONSULTATION team, or TERMINATED.
- * They remain in the database for historical purposes but are hidden from the active ranking.
+ * Emails excluded from the Chat Team ranking and floor averages.
  */
 const EXCLUDED_FROM_CHAT_TEAM: Record<string, string> = {
   "abdallah.abdallah@tabby.ai": "PHONE team only",
@@ -164,6 +193,8 @@ interface SupabaseTeamMetric {
   irt_replier: number | null;
   shrinkage: number | null;
   utilization: number | null;
+  break_exceed: number | null;
+  idle_time: number | null;
   source: string;
   fetched_at: string;
   created_at: string;
@@ -180,105 +211,72 @@ interface CachedTeamData {
   fetchedAt: number;
 }
 
-// ─── Ranking Formula ──────────────────────────────────────────────────────────
-
-/**
- * Compute overall ranking score for a Chat team member.
- *
- * Primary metrics (in priority order):
- * 1. Productivity (higher is better) — weight 35%
- * 2. CSAT (higher is better) — weight 30%
- * 3. Close Rate / "Closed tickets, %" (higher is better) — weight 20%
- * 4. ABT / Average Basket Time (LOWER is better) — weight 15%
- *
- * Each metric is normalized against the floor average (0.5 = at average).
- * For ABT, the normalization inverts because lower is better.
- * Missing metrics contribute 0 to the score.
- */
-export function computeOverallScore(
-  productivity: number | null,
-  csat: number | null,
-  closeRate: number | null,
-  aht: number | null,
-  floorAvgProductivity: number,
-  floorAvgCsat: number,
-  floorAvgCloseRate: number,
-  floorAvgAht: number,
-): number | null {
-  const scores: number[] = [];
-  const weights: number[] = [];
-
-  // Productivity (35%) — higher is better
-  if (productivity !== null && floorAvgProductivity > 0) {
-    scores.push(Math.min(productivity / floorAvgProductivity, 2)); // Cap at 2x
-    weights.push(0.35);
-  }
-
-  // CSAT (30%) — higher is better
-  if (csat !== null && floorAvgCsat > 0) {
-    scores.push(Math.min(csat / floorAvgCsat, 2));
-    weights.push(0.30);
-  }
-
-  // Close Rate (20%) — higher is better
-  if (closeRate !== null && floorAvgCloseRate > 0) {
-    scores.push(Math.min(closeRate / floorAvgCloseRate, 2));
-    weights.push(0.20);
-  }
-
-  // ABT (15%) — LOWER is better, so we invert
-  if (aht !== null && floorAvgAht > 0 && aht > 0) {
-    scores.push(Math.min(floorAvgAht / aht, 2)); // Inverted: lower AHT = higher score
-    weights.push(0.15);
-  }
-
-  if (scores.length === 0) return null;
-
-  // Weighted average
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  const weightedScore = scores.reduce((sum, s, i) => sum + s * weights[i], 0);
-  return Math.round((weightedScore / totalWeight) * 100) / 100;
-}
+// ─── Helper: compute floor average of non-null values ──────────────────────────
 
 function computeFloorAvg(values: (number | null)[]): number {
   const valid = values.filter((v): v is number => v !== null);
   return valid.length > 0 ? Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10 : 0;
 }
 
+// ─── Helper: assign per-metric CSAT rank (1 = best = highest CSAT) ─────────────
+
+function assignCsatRanks(members: TeamMemberRow[]): void {
+  const sorted = [...members]
+    .filter((m) => m.csat !== null)
+    .sort((a, b) => (b.csat ?? 0) - (a.csat ?? 0)); // highest CSAT first
+  for (const m of members) {
+    if (m.csat === null) {
+      m.rankCsat = null;
+    } else {
+      m.rankCsat = sorted.findIndex((s) => s.email === m.email) + 1;
+    }
+  }
+}
+
 function supabaseRowToMemberRow(row: SupabaseTeamMetric): TeamMemberRow {
-  const aht = row.chat_aht; // ABT = Average Basket Time (NOT Genesys AHT)
-  const closeRate = row.closed_tickets_pct; // ⚠️ "Closed tickets, %" — NOT "Closed After Resolution"
+  const aht = row.chat_aht;
+  const closeRate = row.closed_tickets_pct; // ⚠️ NOT "Closed After Resolution"
 
   return {
-    name: row.agent_name || row.agent_email.split("@")[0],
     email: row.agent_email,
+    name: row.agent_name || row.agent_email.split("@")[0],
     bambooId: row.bamboo_id,
-    // Primary ranking metrics
-    productivity: row.productivity,
     csat: row.csat,
-    aht: aht,
-    closeRate: closeRate,
-    // Additional metrics
-    fcr: row.fcr,
-    chatAht: aht,                          // Same as aht (for compatibility)
-    chatHandlingTime: row.chat_handling_time,
-    genesysAht: row.genesys_aht,
-    adherence: row.adherence,
-    irtReplier: row.irt_replier,
-    closedAfterResolution: row.closed_after_resolution, // SEPARATE from Close Rate
+    productivity: row.productivity,
     escalationRate: row.escalation_rate,
+    adherence: row.adherence,
+    aht: aht,
+    irtReplier: row.irt_replier,
+    fcr: row.fcr,
+    closedAfterResolution: row.closed_after_resolution,
+    breakExceed: row.break_exceed ?? null,
+    idleTime: row.idle_time ?? null,
     deescalationRate: row.deescalation_rate,
     occupancy: row.occupancy,
-    concurrency: row.concurrency,
     avgGroupBasketTime: row.avg_group_basket_time,
+    closeRate: closeRate,
+    chatAht: aht,
+    chatHandlingTime: row.chat_handling_time,
+    genesysAht: row.genesys_aht,
+    concurrency: row.concurrency,
     shrinkage: row.shrinkage,
     utilization: row.utilization,
-    // Computed (will be filled after floor averages)
-    overallScore: null,
+    // Computed (will be filled after floor averages and ranking)
+    rankCsat: null,
     floorAvgProductivity: 0,
     floorAvgCsat: 0,
     floorAvgAht: 0,
     floorAvgCloseRate: 0,
+    floorAvgFcr: 0,
+    floorAvgEscalationRate: 0,
+    floorAvgAdherence: 0,
+    floorAvgIrtReplier: 0,
+    floorAvgClosedAfterResolution: 0,
+    floorAvgDeescalationRate: 0,
+    floorAvgOccupancy: 0,
+    floorAvgAvgGroupBasketTime: 0,
+    floorAvgBreakExceed: 0,
+    floorAvgIdleTime: 0,
   };
 }
 
@@ -305,7 +303,7 @@ export async function fetchTeamData(): Promise<TeamData> {
     // Cache corrupted
   }
 
-  // 2. Try Supabase (primary source)
+  // 2. Try Supabase
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -316,7 +314,7 @@ export async function fetchTeamData(): Promise<TeamData> {
     }
   }
 
-  // 3. Try static JSON file (fallback for development/offline)
+  // 3. Try static JSON file
   try {
     const res = await fetch("/team-data.json", {
       cache: "no-cache",
@@ -348,7 +346,11 @@ export async function fetchTeamData(): Promise<TeamData> {
     members: [],
     fetchedAt: new Date().toISOString(),
     monthLabel: "",
-    floorAvg: { productivity: 0, csat: 0, aht: 0, closeRate: 0, fcr: 0 },
+    floorAvg: {
+      productivity: 0, csat: 0, aht: 0, closeRate: 0, fcr: 0,
+      escalationRate: 0, adherence: 0, irtReplier: 0, closedAfterResolution: 0,
+      deescalationRate: 0, occupancy: 0, avgGroupBasketTime: 0, breakExceed: 0, idleTime: 0,
+    },
   };
 }
 
@@ -356,12 +358,8 @@ export async function fetchTeamData(): Promise<TeamData> {
  * Force a fresh fetch (bypass cache).
  */
 export async function refreshTeamData(): Promise<TeamData> {
-  // Clear cache
-  try {
-    localStorage.removeItem(CACHE_KEY);
-  } catch {}
+  try { localStorage.removeItem(CACHE_KEY); } catch {}
 
-  // Re-fetch from Supabase first
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -376,7 +374,8 @@ export async function refreshTeamData(): Promise<TeamData> {
 }
 
 /**
- * Fetch and process team data from Supabase.
+ * Fetch from Supabase, compute floor averages OVER CHAT TEAM ONLY,
+ * assign CSAT rankings.
  */
 async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
   const { data, error } = await client
@@ -386,29 +385,46 @@ async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
 
   if (error || !data || data.length === 0) return null;
 
-  const members = (data as SupabaseTeamMetric[]).map(supabaseRowToMemberRow);
+  const allMembers = (data as SupabaseTeamMetric[]).map(supabaseRowToMemberRow);
 
-  // Compute floor averages (over ALL members, including excluded ones for context)
-  const allMembers = members;
-  const floorAvgProductivity = computeFloorAvg(allMembers.map((m) => m.productivity));
-  const floorAvgCsat = computeFloorAvg(allMembers.map((m) => m.csat));
-  const floorAvgAht = computeFloorAvg(allMembers.map((m) => m.aht));
-  const floorAvgCloseRate = computeFloorAvg(allMembers.map((m) => m.closeRate));
-  const floorAvgFcr = computeFloorAvg(allMembers.map((m) => m.fcr));
+  // Floor averages computed over CHAT TEAM ONLY (excluded agents are NOT included)
+  const chatTeam = filterChatTeam(allMembers);
+  const floorAvgProductivity = computeFloorAvg(chatTeam.map((m) => m.productivity));
+  const floorAvgCsat = computeFloorAvg(chatTeam.map((m) => m.csat));
+  const floorAvgAht = computeFloorAvg(chatTeam.map((m) => m.aht));
+  const floorAvgCloseRate = computeFloorAvg(chatTeam.map((m) => m.closeRate));
+  const floorAvgFcr = computeFloorAvg(chatTeam.map((m) => m.fcr));
+  const floorAvgEscalationRate = computeFloorAvg(chatTeam.map((m) => m.escalationRate));
+  const floorAvgAdherence = computeFloorAvg(chatTeam.map((m) => m.adherence));
+  const floorAvgIrtReplier = computeFloorAvg(chatTeam.map((m) => m.irtReplier));
+  const floorAvgClosedAfterResolution = computeFloorAvg(chatTeam.map((m) => m.closedAfterResolution));
+  const floorAvgDeescalationRate = computeFloorAvg(chatTeam.map((m) => m.deescalationRate));
+  const floorAvgOccupancy = computeFloorAvg(chatTeam.map((m) => m.occupancy));
+  const floorAvgAvgGroupBasketTime = computeFloorAvg(chatTeam.map((m) => m.avgGroupBasketTime));
+  const floorAvgBreakExceed = computeFloorAvg(chatTeam.map((m) => m.breakExceed));
+  const floorAvgIdleTime = computeFloorAvg(chatTeam.map((m) => m.idleTime));
 
-  // Assign floor averages and compute overall scores for ALL members
+  // Assign floor averages and rankings to ALL members (including excluded)
   for (const m of allMembers) {
     m.floorAvgProductivity = floorAvgProductivity;
     m.floorAvgCsat = floorAvgCsat;
     m.floorAvgAht = floorAvgAht;
     m.floorAvgCloseRate = floorAvgCloseRate;
-    m.overallScore = computeOverallScore(
-      m.productivity, m.csat, m.closeRate, m.aht,
-      floorAvgProductivity, floorAvgCsat, floorAvgCloseRate, floorAvgAht,
-    );
+    m.floorAvgFcr = floorAvgFcr;
+    m.floorAvgEscalationRate = floorAvgEscalationRate;
+    m.floorAvgAdherence = floorAvgAdherence;
+    m.floorAvgIrtReplier = floorAvgIrtReplier;
+    m.floorAvgClosedAfterResolution = floorAvgClosedAfterResolution;
+    m.floorAvgDeescalationRate = floorAvgDeescalationRate;
+    m.floorAvgOccupancy = floorAvgOccupancy;
+    m.floorAvgAvgGroupBasketTime = floorAvgAvgGroupBasketTime;
+    m.floorAvgBreakExceed = floorAvgBreakExceed;
+    m.floorAvgIdleTime = floorAvgIdleTime;
   }
 
-  // Determine month label from data
+  // CSAT ranking over CHAT TEAM ONLY
+  assignCsatRanks(chatTeam);
+
   const monthLabel = (data as SupabaseTeamMetric[])[0]?.month || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const teamData: TeamData = {
@@ -421,6 +437,15 @@ async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
       aht: floorAvgAht,
       closeRate: floorAvgCloseRate,
       fcr: floorAvgFcr,
+      escalationRate: floorAvgEscalationRate,
+      adherence: floorAvgAdherence,
+      irtReplier: floorAvgIrtReplier,
+      closedAfterResolution: floorAvgClosedAfterResolution,
+      deescalationRate: floorAvgDeescalationRate,
+      occupancy: floorAvgOccupancy,
+      avgGroupBasketTime: floorAvgAvgGroupBasketTime,
+      breakExceed: floorAvgBreakExceed,
+      idleTime: floorAvgIdleTime,
     },
   };
 

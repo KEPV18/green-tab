@@ -15,7 +15,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed = false, toggleCollapsed }: SidebarProps) {
   const location = useLocation();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const [metrics, setMetrics] = useState<{ totalGood: number; totalBad: number; karmaBad: number; kpiScore: number }>({ totalGood: 0, totalBad: 0, karmaBad: 0, kpiScore: 0 });
   const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
   const [activeTab, setActiveTab] = useState(() => {

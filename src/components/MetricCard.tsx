@@ -10,9 +10,10 @@ interface MetricCardProps {
   color?: "primary" | "destructive" | "warning" | "success";
   icon?: LucideIcon;
   showButtons?: boolean;
+  subtitle?: string;
 }
 
-export const MetricCard = ({ title, value, onIncrement, onDecrement, color = "primary", icon: Icon, showButtons = true }: MetricCardProps) => {
+export const MetricCard = ({ title, value, onIncrement, onDecrement, color = "primary", icon: Icon, showButtons = true, subtitle }: MetricCardProps) => {
   const colorMap = {
     primary: { 
       text: "text-primary", 
@@ -67,6 +68,9 @@ export const MetricCard = ({ title, value, onIncrement, onDecrement, color = "pr
             <p className={`text-2xl font-extrabold tracking-tight ${c.text} tabular-nums`}>
               {value}
             </p>
+            {subtitle && (
+              <p className="text-[9px] text-muted-foreground/70 mt-0.5">{subtitle}</p>
+            )}
           </div>
         </div>
         {showButtons && onIncrement && onDecrement && (
