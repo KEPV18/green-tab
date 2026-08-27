@@ -19,7 +19,7 @@ app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173", cred
 app.use(express.json());
 
 // Initialize DB on startup
-getDb();
+getDb().then(() => console.log("Database initialized")).catch(console.error);
 
 // ---- Auth Middleware ----
 interface AuthRequest extends express.Request {
@@ -43,7 +43,7 @@ function authMiddleware(req: express.Request, res: express.Response, next: expre
 }
 
 // ---- Auth Routes ----
-app.post("/api/auth/signup", (req, res) => {
+app.post("/api/auth/signup", async (req, res) => {
   const { email, username, password } = req.body;
   if (!email || !username || !password) {
     res.status(400).json({ error: "Email, username, and password are required" });
@@ -53,7 +53,7 @@ app.post("/api/auth/signup", (req, res) => {
     res.status(400).json({ error: "Password must be at least 6 characters" });
     return;
   }
-  const result = createUser(email, username, password);
+  const result = await createUser(email, username, password);
   if ("error" in result) {
     res.status(409).json({ error: result.error });
     return;
@@ -62,13 +62,13 @@ app.post("/api/auth/signup", (req, res) => {
   res.json({ user: result, token });
 });
 
-app.post("/api/auth/signin", (req, res) => {
+app.post("/api/auth/signin", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
     return;
   }
-  const user = verifyUser(email, password);
+  const user = await verifyUser(email, password);
   if (!user) {
     res.status(401).json({ error: "Invalid email or password" });
     return;
@@ -77,9 +77,9 @@ app.post("/api/auth/signin", (req, res) => {
   res.json({ user, token });
 });
 
-app.get("/api/auth/me", authMiddleware, (req, res) => {
+app.get("/api/auth/me", authMiddleware, async (req, res) => {
   const userId = (req as AuthRequest).userId;
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;
@@ -88,34 +88,33 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
 });
 
 // ---- Month Data Routes ----
-app.get("/api/performance/:year/:month", authMiddleware, (req, res) => {
+app.get("/api/performance/:year/:month", authMiddleware, async (req, res) => {
   const year = parseInt(req.params.year as string);
   const month = parseInt(req.params.month as string);
   const userId = (req as AuthRequest).userId;
 
-  const monthData = getOrCreateMonthData(userId, year, month);
-  const tickets = getTickets(monthData.id);
-  const genesysTickets = getGenesysTickets(monthData.id);
-  const changes = getDailyChanges(monthData.id);
+  const monthData = await getOrCreateMonthData(userId, year, month);
+  const tickets = await getTickets(monthData.id as string);
+  const genesysTickets = await getGenesysTickets(monthData.id as string);
+  const changes = await getDailyChanges(monthData.id as string);
 
   res.json({
     ...monthData,
     goodByChannel: { phone: monthData.good_phone, chat: monthData.good_chat, email: monthData.good_email },
     badByChannel: { phone: monthData.bad_phone, chat: monthData.bad_chat, email: monthData.bad_email },
-    offDays: JSON.parse(monthData.off_days || "[]"),
+    offDays: JSON.parse((monthData.off_days as string) || "[]"),
     tickets,
     genesysTickets,
     dailyChanges: changes,
   });
 });
 
-app.put("/api/performance/:year/:month", authMiddleware, (req, res) => {
+app.put("/api/performance/:year/:month", authMiddleware, async (req, res) => {
   const year = parseInt(req.params.year as string);
   const month = parseInt(req.params.month as string);
   const userId = (req as AuthRequest).userId;
 
-  const monthData = getOrCreateMonthData(userId, year, month);
-
+  const monthData = await getOrCreateMonthData(userId, year, month);
   const { goodByChannel, badByChannel, offDays, tickets, genesysTickets, dailyChanges, ...fields } = req.body;
 
   if (goodByChannel) {
@@ -132,67 +131,67 @@ app.put("/api/performance/:year/:month", authMiddleware, (req, res) => {
     fields.off_days = JSON.stringify(offDays);
   }
 
-  const updated = updateMonthData(monthData.id, fields);
+  const updated = await updateMonthData(monthData.id as string, fields);
   res.json(updated);
 });
 
 // ---- Tickets Routes ----
-app.post("/api/tickets/:monthDataId", authMiddleware, (req, res) => {
+app.post("/api/tickets/:monthDataId", authMiddleware, async (req, res) => {
   const monthDataId = req.params.monthDataId as string;
-  const ticket = addTicket(monthDataId, req.body);
+  const ticket = await addTicket(monthDataId, req.body);
   res.json(ticket);
 });
 
-app.delete("/api/tickets/:ticketId", authMiddleware, (req, res) => {
+app.delete("/api/tickets/:ticketId", authMiddleware, async (req, res) => {
   const ticketId = req.params.ticketId as string;
-  const ok = deleteTicket(ticketId);
+  const ok = await deleteTicket(ticketId);
   ok ? res.json({ success: true }) : res.status(404).json({ error: "Ticket not found" });
 });
 
 // ---- Genesys Tickets Routes ----
-app.post("/api/genesys-tickets/:monthDataId", authMiddleware, (req, res) => {
+app.post("/api/genesys-tickets/:monthDataId", authMiddleware, async (req, res) => {
   const monthDataId = req.params.monthDataId as string;
-  const ticket = addGenesysTicket(monthDataId, req.body);
+  const ticket = await addGenesysTicket(monthDataId, req.body);
   res.json(ticket);
 });
 
-app.delete("/api/genesys-tickets/:ticketId", authMiddleware, (req, res) => {
+app.delete("/api/genesys-tickets/:ticketId", authMiddleware, async (req, res) => {
   const ticketId = req.params.ticketId as string;
-  const ok = deleteGenesysTicket(ticketId);
+  const ok = await deleteGenesysTicket(ticketId);
   ok ? res.json({ success: true }) : res.status(404).json({ error: "Ticket not found" });
 });
 
 // ---- Daily Changes Routes ----
-app.post("/api/daily-changes/:monthDataId", authMiddleware, (req, res) => {
+app.post("/api/daily-changes/:monthDataId", authMiddleware, async (req, res) => {
   const monthDataId = req.params.monthDataId as string;
-  const change = addDailyChange(monthDataId, req.body);
+  const change = await addDailyChange(monthDataId, req.body);
   res.json(change);
 });
 
 // ---- Daily Shifts Routes ----
-app.get("/api/shifts", authMiddleware, (req, res) => {
+app.get("/api/shifts", authMiddleware, async (req, res) => {
   const userId = (req as AuthRequest).userId;
   const yearMonth = req.query.yearMonth as string | undefined;
-  const shifts = getDailyShifts(userId, yearMonth);
+  const shifts = await getDailyShifts(userId, yearMonth);
   res.json(shifts);
 });
 
-app.post("/api/shifts", authMiddleware, (req, res) => {
+app.post("/api/shifts", authMiddleware, async (req, res) => {
   const userId = (req as AuthRequest).userId;
-  const shift = upsertDailyShift(userId, req.body);
+  const shift = await upsertDailyShift(userId, req.body);
   res.json(shift);
 });
 
 // ---- User Settings Routes ----
-app.get("/api/settings", authMiddleware, (req, res) => {
+app.get("/api/settings", authMiddleware, async (req, res) => {
   const userId = (req as AuthRequest).userId;
-  const settings = getUserSettings(userId);
+  const settings = await getUserSettings(userId);
   res.json(settings);
 });
 
-app.put("/api/settings", authMiddleware, (req, res) => {
+app.put("/api/settings", authMiddleware, async (req, res) => {
   const userId = (req as AuthRequest).userId;
-  const settings = updateUserSettings(userId, req.body);
+  const settings = await updateUserSettings(userId, req.body);
   res.json(settings);
 });
 

@@ -9,19 +9,20 @@
     "start": "node --import tsx index.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
+    "sql.js": "^1.14.2",
     "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/sql.js": "^1.4.11",
     "@types/uuid": "^10.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
