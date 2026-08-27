@@ -1,18 +1,33 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { FileText, Plus, Calendar, Trash2 } from "lucide-react";
+import { StickyNote, Save, X, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
-export interface DailyNote {
-  id?: string;
-  noteDate: string;
-  content: string;
-  created_at?: string;
+const PREFIX = "gt_daily_notes_";
+
+interface DailyNote {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
+function readNotes(userId: string, performanceId: string | null): DailyNote[] {
+  try {
+    const key = performanceId ? `${PREFIX}${userId}_${performanceId}` : `${PREFIX}${userId}_active`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch { return []; }
+}
+
+function writeNotes(userId: string, performanceId: string | null, notes: DailyNote[]): void {
+  try {
+    const key = performanceId ? `${PREFIX}${userId}_${performanceId}` : `${PREFIX}${userId}_active`;
+    localStorage.setItem(key, JSON.stringify(notes));
+  } catch {}
 }
 
 interface DailyNotesSectionProps {
@@ -21,201 +36,122 @@ interface DailyNotesSectionProps {
 
 export const DailyNotesSection = ({ performanceId }: DailyNotesSectionProps) => {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
+  const userId = user?.id || "local";
+  const [notes, setNotes] = useState<DailyNote[]>([]);
   const [newNote, setNewNote] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { data: notes = [] } = useQuery({
-    queryKey: ["dailyNotes", performanceId],
-    queryFn: async () => {
-      if (!performanceId) return [];
-      const { data, error } = await supabase
-        .from("daily_notes")
-        .select("*")
-        .eq("performance_id", performanceId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data.map((n: any) => ({
-        id: n.id,
-        noteDate: n.note_date,
-        content: n.content,
-        created_at: n.created_at,
-      }));
-    },
-    enabled: !!performanceId,
-  });
-
-  const addMutation = useMutation({
-    mutationFn: async (content: string) => {
-      if (!performanceId) throw new Error("No performance record");
-      const today = new Date().toISOString().split('T')[0];
-      const { error } = await supabase.from("daily_notes").insert({
-        performance_id: performanceId,
-        note_date: today,
-        content,
-        user_id: user?.id,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dailyNotes"] });
-      toast.success("Note added!");
-      setNewNote("");
-    },
-    onError: () => toast.error("Failed to add note"),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("daily_notes").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dailyNotes"] });
-      toast.success("Note deleted");
-    },
-  });
-
-  const today = new Date().toISOString().split('T')[0];
-  
-  // Group notes by date
-  const notesByDate = notes.reduce((acc: Record<string, DailyNote[]>, note: DailyNote) => {
-    if (!acc[note.noteDate]) {
-      acc[note.noteDate] = [];
-    }
-    acc[note.noteDate].push(note);
-    return acc;
-  }, {});
-
-  const sortedDates = Object.keys(notesByDate).sort((a, b) => b.localeCompare(a));
+  useEffect(() => {
+    setNotes(readNotes(userId, performanceId));
+  }, [userId, performanceId]);
 
   const addNote = () => {
-    if (!newNote.trim()) {
-      toast.error("Please enter a note");
-      return;
-    }
-    if (!performanceId) {
-        toast.error("Please save dashboard first");
-        return;
-    }
-    addMutation.mutate(newNote.trim());
+    if (!newNote.trim()) return;
+    const note: DailyNote = {
+      id: crypto.randomUUID(),
+      text: newNote.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [note, ...notes];
+    setNotes(updated);
+    writeNotes(userId, performanceId, updated);
+    setNewNote("");
+    toast.success("Note added");
   };
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    if (dateStr === today) return "Today";
-    
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (dateStr === yesterday.toISOString().split('T')[0]) return "Yesterday";
-    
-    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const deleteNote = (id: string) => {
+    const updated = notes.filter(n => n.id !== id);
+    setNotes(updated);
+    writeNotes(userId, performanceId, updated);
+    toast.success("Note deleted");
   };
 
-  const formatTime = (isoString?: string) => {
-      if (!isoString) return "";
-      return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const startEdit = (note: DailyNote) => {
+    setEditingId(note.id);
+    setEditText(note.text);
   };
 
-  const renderContent = (content: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = content.split(urlRegex);
-    
-    return parts.map((part, index) => {
-        if (part.match(urlRegex)) {
-            const isImage = /\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i.test(part);
-            if (isImage) {
-                return (
-                    <div key={index} className="my-2">
-                        <img 
-                            src={part} 
-                            alt="Note attachment" 
-                            className="max-w-full h-auto max-h-60 rounded-md border border-border"
-                            loading="lazy"
-                        />
-                    </div>
-                );
-            }
-            return (
-                <a 
-                    key={index} 
-                    href={part} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="text-primary hover:underline break-all font-medium"
-                >
-                    {part}
-                </a>
-            );
-        }
-        return <span key={index}>{part}</span>;
-    });
+  const saveEdit = (id: string) => {
+    if (!editText.trim()) return;
+    const updated = notes.map(n => n.id === id ? { ...n, text: editText.trim() } : n);
+    setNotes(updated);
+    writeNotes(userId, performanceId, updated);
+    setEditingId(null);
+    setEditText("");
+    toast.success("Note updated");
   };
 
   return (
-    <Card className="p-6 border-border">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <FileText className="h-5 w-5 text-primary" />
-        </div>
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Daily Notes</h3>
-          <p className="text-xs text-muted-foreground">Record daily events, issues, or important information</p>
-        </div>
+    <Card className="p-4 border-border/60 bg-card/80 backdrop-blur-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <StickyNote className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
+          Daily Notes
+        </h3>
       </div>
 
-      {/* Add New Note */}
-      <div className="mb-4">
+      <div className="flex gap-2 mb-3">
         <Textarea
-          placeholder="Write your note here... (Paste image links to preview)"
+          ref={textareaRef}
           value={newNote}
           onChange={(e) => setNewNote(e.target.value)}
-          className="mb-2 min-h-[80px]"
+          placeholder="Add a note..."
+          className="min-h-[60px] resize-none"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              addNote();
+            }
+          }}
         />
-        <Button onClick={addNote} className="w-full" disabled={!performanceId || addMutation.isPending}>
-          <Plus className="mr-2 h-4 w-4" /> Add Note for Today
+        <Button onClick={addNote} size="sm" className="h-auto">
+          <Save className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Notes List */}
-      {sortedDates.length > 0 ? (
-        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-          {sortedDates.map((date) => (
-            <div key={date} className="space-y-2">
-              <div className="flex items-center gap-2 sticky top-0 bg-card py-1 z-10">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-semibold text-foreground">{formatDate(date)}</span>
-                <span className="text-xs text-muted-foreground">({notesByDate[date].length})</span>
-              </div>
-              {notesByDate[date].map((note) => (
-                <div
-                  key={note.id}
-                  className="bg-muted/50 rounded-lg p-3 group relative border border-border/50"
-                >
-                  <div className="text-xs text-muted-foreground mb-1 font-mono">
-                    {formatTime(note.created_at)}
-                  </div>
-                  <div className="text-sm text-foreground whitespace-pre-wrap pr-6">
-                    {renderContent(note.content)}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteMutation.mutate(note.id!)}
-                    className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-3 w-3" />
+      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+        {notes.map((note) => (
+          <div key={note.id} className="p-2 bg-muted/30 rounded-lg border border-border/50 group">
+            {editingId === note.id ? (
+              <div className="flex gap-2">
+                <Textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  className="min-h-[40px] resize-none text-xs"
+                />
+                <div className="flex flex-col gap-1">
+                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => saveEdit(note.id)}>
+                    <Save className="h-3 w-3" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingId(null)}>
+                    <X className="h-3 w-3" />
                   </Button>
                 </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-center text-muted-foreground text-sm py-4">
-          No notes yet. Add your first note above.
-        </p>
-      )}
+              </div>
+            ) : (
+              <div className="flex items-start gap-2">
+                <p className="text-xs flex-1 whitespace-pre-wrap">{note.text}</p>
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {new Date(note.createdAt).toLocaleDateString()}
+                </span>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => startEdit(note)}>
+                    <StickyNote className="h-3 w-3" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => deleteNote(note.id)}>
+                    <Trash2 className="h-3 w-3 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {notes.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-4">No notes yet</p>
+        )}
+      </div>
     </Card>
   );
 };

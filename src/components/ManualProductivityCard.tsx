@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { getMonthData, updateMonthData } from "@/lib/store";
 import { Gauge, Save, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,23 +21,14 @@ export const ManualProductivityCard = ({ userId, selectedMonth, selectedYear, on
   const monthLabel = new Date(selectedYear, selectedMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   useEffect(() => {
-    const load = async () => {
-      if (!userId) return;
-      const { data } = await supabase
-        .from("performance_data")
-        .select("manual_productivity")
-        .eq("user_id", userId)
-        .eq("year", selectedYear)
-        .eq("month", selectedMonth)
-        .maybeSingle();
-      const mp = (data as any)?.manual_productivity;
-      setSaved(mp != null ? Number(mp) : null);
-      setValue(mp != null ? String(mp) : "");
-    };
-    load();
+    if (!userId) return;
+    const md = getMonthData(userId, selectedYear, selectedMonth);
+    const mp = (md as any).manualProductivity;
+    setSaved(mp != null ? Number(mp) : null);
+    setValue(mp != null ? String(mp) : "");
   }, [userId, selectedMonth, selectedYear]);
 
-  const save = async () => {
+  const save = () => {
     const n = Number(value);
     if (isNaN(n) || n < 0 || n > 100) {
       toast.error("Enter a value between 0 and 100");
@@ -45,24 +36,7 @@ export const ManualProductivityCard = ({ userId, selectedMonth, selectedYear, on
     }
     setLoading(true);
     try {
-      const { data: existing } = await supabase
-        .from("performance_data")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("year", selectedYear)
-        .eq("month", selectedMonth)
-        .maybeSingle();
-
-      if (existing?.id) {
-        await supabase.from("performance_data").update({ manual_productivity: n } as any).eq("id", existing.id);
-      } else {
-        await supabase.from("performance_data").insert({
-          user_id: userId,
-          year: selectedYear,
-          month: selectedMonth,
-          manual_productivity: n,
-        } as any);
-      }
+      updateMonthData(userId, selectedYear, selectedMonth, { manualProductivity: n } as any);
       setSaved(n);
       toast.success(`Productivity saved: ${n}%`);
       onSaved?.();
@@ -74,19 +48,10 @@ export const ManualProductivityCard = ({ userId, selectedMonth, selectedYear, on
     }
   };
 
-  const clear = async () => {
+  const clear = () => {
     setLoading(true);
     try {
-      const { data: existing } = await supabase
-        .from("performance_data")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("year", selectedYear)
-        .eq("month", selectedMonth)
-        .maybeSingle();
-      if (existing?.id) {
-        await supabase.from("performance_data").update({ manual_productivity: null } as any).eq("id", existing.id);
-      }
+      updateMonthData(userId, selectedYear, selectedMonth, { manualProductivity: null } as any);
       setSaved(null);
       setValue("");
       toast.success("Cleared — using auto productivity");

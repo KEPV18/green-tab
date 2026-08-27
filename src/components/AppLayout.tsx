@@ -3,8 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { Sidebar } from "./Sidebar";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
@@ -44,22 +42,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     localStorage.setItem('sidebarCollapsed', sidebarCollapsed.toString());
   }, [sidebarCollapsed]);
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
-    queryFn: async () => {
-      if (!user?.id) return null;
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      return data;
-    },
-    enabled: !!user?.id,
-  });
-
-  const name = profile?.username || user?.email || "";
-  const initials = name ? name.slice(0, 2).toUpperCase() : "";
+  const name = user?.email || "";
+  const initials = name ? name.slice(0, 2).toUpperCase() : "U";
 
   const [initialLoading, setInitialLoading] = useState(true);
   useEffect(() => {

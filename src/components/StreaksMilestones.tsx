@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
 import { Flame, Trophy, Star, Zap } from "lucide-react";
+import { getDailyChanges, getMonthData } from "@/lib/store";
 
 interface StreaksMilestonesProps {
   userId: string;
@@ -31,69 +31,60 @@ export const StreaksMilestones = ({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadStreakData = async () => {
-      if (!userId) return;
-      setLoading(true);
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const md = getMonthData(userId, selectedYear, selectedMonth);
+      const changes = getDailyChanges(md.id);
 
-      try {
-        // Load daily calls for the month to calculate streaks
-        const startDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
-        const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-        const endDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${lastDay}`;
-
-        const { data: callsData } = await supabase
-          .from('daily_survey_calls')
-          .select('call_date, total_calls')
-          .eq('user_id', userId)
-          .gte('call_date', startDate)
-          .lte('call_date', endDate)
-          .order('call_date', { ascending: true });
-
-        const records = callsData || [];
-
-        // Today's calls
-        const today = new Date().toISOString().split('T')[0];
-        const todayRecord = records.find(r => r.call_date === today);
-        setTodayCalls(todayRecord?.total_calls || 0);
-
-        // Calculate streak: consecutive days with >= 30 calls (100% tier)
-        let currentStreak = 0;
-        let maxStreak = 0;
-        let tempStreak = 0;
-
-        // Sort by date descending to find current streak
-        const sorted = [...records].filter(r => (r.total_calls || 0) > 0).sort((a, b) => b.call_date.localeCompare(a.call_date));
-        
-        // Current streak (from most recent backwards)
-        for (const record of sorted) {
-          if ((record.total_calls || 0) >= 30) {
-            currentStreak++;
-          } else {
-            break;
-          }
+      // Calculate "calls" per day from daily changes (good + bad changes)
+      const dayMap = new Map<string, number>();
+      changes.forEach((c) => {
+        if (c.fieldName === "good" || c.fieldName === "genesysGood" ||
+            c.fieldName === "bad" || c.fieldName === "genesysBad") {
+          const current = dayMap.get(c.changeDate) || 0;
+          dayMap.set(c.changeDate, current + Math.abs(c.changeAmount));
         }
+      });
 
-        // Best streak
-        const chronological = [...records].filter(r => (r.total_calls || 0) > 0).sort((a, b) => a.call_date.localeCompare(b.call_date));
-        for (const record of chronological) {
-          if ((record.total_calls || 0) >= 30) {
-            tempStreak++;
-            maxStreak = Math.max(maxStreak, tempStreak);
-          } else {
-            tempStreak = 0;
-          }
-        }
+      // Today's calls
+      const today = new Date().toISOString().split('T')[0];
+      setTodayCalls(dayMap.get(today) || 0);
 
-        setStreak(currentStreak);
-        setBestStreak(maxStreak);
-      } catch (error) {
-        console.error('Error loading streak data:', error);
-      } finally {
-        setLoading(false);
+      // Calculate streak: consecutive days with >= 30 calls
+      const sortedDays = Array.from(dayMap.entries())
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => b[0].localeCompare(a[0])); // descending
+
+      let currentStreak = 0;
+      for (const [, count] of sortedDays) {
+        if (count >= 30) currentStreak++;
+        else break;
       }
-    };
 
-    loadStreakData();
+      // Best streak
+      const chronological = Array.from(dayMap.entries())
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => a[0].localeCompare(b[0]));
+
+      let tempStreak = 0;
+      let maxStreak = 0;
+      for (const [, count] of chronological) {
+        if (count >= 30) {
+          tempStreak++;
+          maxStreak = Math.max(maxStreak, tempStreak);
+        } else {
+          tempStreak = 0;
+        }
+      }
+
+      setStreak(currentStreak);
+      setBestStreak(maxStreak);
+    } catch (error) {
+      console.error('Error loading streak data:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [userId, selectedMonth, selectedYear]);
 
   const todayMilestone = useMemo(() => getMilestoneEmoji(todayCalls), [todayCalls]);
@@ -104,7 +95,6 @@ export const StreaksMilestones = ({
   return (
     <Card className="p-3 border-border/60 bg-card/80 backdrop-blur-sm overflow-hidden">
       <div className="flex items-center gap-4">
-        {/* Streak */}
         <div className="flex items-center gap-1.5">
           <Flame className={`h-4 w-4 ${streak > 0 ? "text-orange-500" : "text-muted-foreground/40"}`} />
           <div>
@@ -117,7 +107,6 @@ export const StreaksMilestones = ({
 
         <div className="w-px h-8 bg-border" />
 
-        {/* Best Streak */}
         <div className="flex items-center gap-1.5">
           <Trophy className={`h-3.5 w-3.5 ${bestStreak > 0 ? "text-warning" : "text-muted-foreground/40"}`} />
           <div>
@@ -128,7 +117,6 @@ export const StreaksMilestones = ({
 
         <div className="w-px h-8 bg-border" />
 
-        {/* Today's calls milestone */}
         <div className="flex items-center gap-1.5">
           <Zap className={`h-3.5 w-3.5 ${todayCalls >= 30 ? "text-success" : "text-muted-foreground/40"}`} />
           <div>
@@ -140,7 +128,6 @@ export const StreaksMilestones = ({
           </div>
         </div>
 
-        {/* Target hit badge */}
         {targetHit && (
           <>
             <div className="w-px h-8 bg-border" />

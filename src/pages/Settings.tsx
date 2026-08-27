@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -11,8 +9,8 @@ import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Lock, Save, DollarSign, Mail, Palette, RefreshCw, Bus, Wifi, Award, Languages, Shield, Eye, EyeOff } from "lucide-react";
-import type { PostgrestError } from "@supabase/supabase-js";
 import { useTheme } from "next-themes";
+import { getUserSettings, updateUserSettings } from "@/lib/store";
 
 const usernameSchema = z
   .string()
@@ -28,14 +26,13 @@ const passwordSchema = z
 
 export default function Settings() {
   const { user } = useAuth();
-  const qc = useQueryClient();
   const { theme, setTheme } = useTheme();
-  
+
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [autosaveMode, setAutosaveMode] = useState<"manual" | "immediate" | "hourly">("manual");
   const [appTheme, setAppTheme] = useState<string>("dark");
-  
+
   const [baseSalary, setBaseSalary] = useState<string>("");
   const [taxRate, setTaxRate] = useState<string>("");
   const [kpiPercentage, setKpiPercentage] = useState<string>("70");
@@ -51,122 +48,108 @@ export default function Settings() {
   const [startMonth, setStartMonth] = useState<string>("");
   const [knownBonusMonth, setKnownBonusMonth] = useState<string>("");
   const [isSalarySaving, setIsSalarySaving] = useState(false);
-  
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
+
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  
-  const { data: profile, isLoading: isProfileLoading } = useQuery({
-    queryKey: ["profile", user?.id],
-    queryFn: async () => {
-      if (!user?.id) return null;
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id,
-  });
+
+  const userId = user?.id || "local";
 
   useEffect(() => {
-    if (profile?.username) setUsername(profile.username);
-    if ((profile as any)?.display_name) setDisplayName((profile as any).display_name);
-    const metaMode = (user?.user_metadata as Record<string, unknown> | undefined)?.autosaveMode;
-    if (metaMode === "immediate" || metaMode === "hourly" || metaMode === "manual") {
-      setAutosaveMode(metaMode as any);
+    const stored = localStorage.getItem("gt_profile_" + userId);
+    if (stored) {
+      try {
+        const profile = JSON.parse(stored);
+        if (profile.username) setUsername(profile.username);
+        if (profile.displayName) setDisplayName(profile.displayName);
+        if (profile.autosaveMode) setAutosaveMode(profile.autosaveMode);
+      } catch {}
+    } else if (user?.email) {
+      setUsername(user.email.split("@")[0]);
+      setDisplayName(user.email.split("@")[0]);
     }
     if (theme) setAppTheme(theme);
-  }, [profile, user]);
+  }, [user, userId, theme]);
 
   useEffect(() => {
-    const loadSalary = async () => {
-      if (!user?.id) return;
-      const { data } = await supabase
-        .from('user_settings')
-        .select('base_salary, tax_rate, kpi_percentage, transportation_allowance, transport_applied, internet_allowance, senior_bonus, language_allowance, salary_payment_day, salary_delay_months, kpi_delay_months, employee_type, start_month')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (data) {
-        const d = data as any;
-        if (d.base_salary != null) setBaseSalary(String(d.base_salary));
-        if (d.tax_rate != null) setTaxRate(String(d.tax_rate));
-        if (d.kpi_percentage != null) setKpiPercentage(String(d.kpi_percentage));
-        if (d.transportation_allowance != null) setTransportAllowance(String(d.transportation_allowance));
-        if (d.transport_applied != null) setTransportApplied(!!d.transport_applied);
-        if (d.internet_allowance != null) setInternetAllowance(String(d.internet_allowance));
-        if (d.senior_bonus != null) setSeniorBonus(String(d.senior_bonus));
-        if (d.language_allowance != null) setLanguageAllowance(String(d.language_allowance));
-        if (d.salary_payment_day != null) setSalaryPaymentDay(String(d.salary_payment_day));
-        if (d.salary_delay_months != null) setSalaryDelayMonths(String(d.salary_delay_months));
-        if (d.kpi_delay_months != null) setKpiDelayMonths(String(d.kpi_delay_months));
-        if (d.employee_type != null) setEmployeeType(d.employee_type);
-        if (d.start_month != null) {
-          setStartMonth(d.start_month);
-          const [yearStr, monthStr] = d.start_month.split('-');
+    if (!userId) return;
+    try {
+      const settings = getUserSettings(userId) as any;
+      if (settings) {
+        if (settings.baseSalary != null) setBaseSalary(String(settings.baseSalary));
+        if (settings.taxRate != null) setTaxRate(String(settings.taxRate));
+        if (settings.kpiPercentage != null) setKpiPercentage(String(settings.kpiPercentage));
+        else if (settings.kpi_percentage != null) setKpiPercentage(String(settings.kpi_percentage));
+        if (settings.transportAllowance != null) setTransportAllowance(String(settings.transportAllowance));
+        else if (settings.transportation_allowance != null) setTransportAllowance(String(settings.transportation_allowance));
+        if (settings.transportApplied != null) setTransportApplied(!!settings.transportApplied);
+        else if (settings.transport_applied != null) setTransportApplied(!!settings.transport_applied);
+        if (settings.internetAllowance != null) setInternetAllowance(String(settings.internetAllowance));
+        else if (settings.internet_allowance != null) setInternetAllowance(String(settings.internet_allowance));
+        if (settings.seniorBonus != null) setSeniorBonus(String(settings.seniorBonus));
+        else if (settings.senior_bonus != null) setSeniorBonus(String(settings.senior_bonus));
+        if (settings.languageAllowance != null) setLanguageAllowance(String(settings.languageAllowance));
+        else if (settings.language_allowance != null) setLanguageAllowance(String(settings.language_allowance));
+        if (settings.salaryPaymentDay != null) setSalaryPaymentDay(String(settings.salaryPaymentDay));
+        else if (settings.salary_payment_day != null) setSalaryPaymentDay(String(settings.salary_payment_day));
+        if (settings.salaryDelayMonths != null) setSalaryDelayMonths(String(settings.salaryDelayMonths));
+        else if (settings.salary_delay_months != null) setSalaryDelayMonths(String(settings.salary_delay_months));
+        if (settings.kpiDelayMonths != null) setKpiDelayMonths(String(settings.kpiDelayMonths));
+        else if (settings.kpi_delay_months != null) setKpiDelayMonths(String(settings.kpi_delay_months));
+        if (settings.employeeType != null) setEmployeeType(settings.employeeType);
+        else if (settings.employee_type != null) setEmployeeType(settings.employee_type);
+        if (settings.startMonth != null) setStartMonth(settings.startMonth);
+        else if (settings.start_month != null) {
+          setStartMonth(settings.start_month);
+          const [yearStr, monthStr] = settings.start_month.split('-');
           if (yearStr && monthStr) {
             const date = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
             date.setMonth(date.getMonth() + 5);
             setKnownBonusMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
           }
         }
+        if (settings.shiftStartTime != null) {} // handled elsewhere
       }
-    };
-    loadSalary();
-  }, [user?.id]);
+    } catch (e) {
+      console.error('Error loading settings:', e);
+    }
+  }, [userId]);
 
   const handleKnownBonusMonthChange = (val: string) => {
     setKnownBonusMonth(val);
     if (!val) return;
     const [yearStr, monthStr] = val.split('-');
     if (yearStr && monthStr) {
-      // Subtract 5 months means subtract 4 from index to reach M0, or mathematically -5
       const d = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
       d.setMonth(d.getMonth() - 5);
-      const newStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      setStartMonth(newStart);
+      setStartMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
   };
 
-  const onSalarySave = async (e: React.FormEvent) => {
+  const onSalarySave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user?.id) return;
+    if (!userId) return;
     setIsSalarySaving(true);
     try {
-      const payload = {
-        base_salary: baseSalary ? parseFloat(baseSalary) : null,
-        tax_rate: taxRate ? parseFloat(taxRate) : null,
-        kpi_percentage: kpiPercentage ? parseFloat(kpiPercentage) : 70,
-        transportation_allowance: transportAllowance ? parseFloat(transportAllowance) : 0,
-        transport_applied: transportApplied,
-        internet_allowance: internetAllowance ? parseFloat(internetAllowance) : 0,
-        senior_bonus: seniorBonus ? parseFloat(seniorBonus) : 0,
-        language_allowance: languageAllowance ? parseFloat(languageAllowance) : 0,
-        salary_payment_day: salaryPaymentDay ? parseInt(salaryPaymentDay) : 27,
-        salary_delay_months: salaryDelayMonths ? parseInt(salaryDelayMonths) : 1,
-        kpi_delay_months: kpiDelayMonths ? parseInt(kpiDelayMonths) : 2,
-        employee_type: employeeType,
-        start_month: startMonth ? startMonth : null,
-      } as any;
-      
-      const { data: existing } = await supabase
-        .from('user_settings')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (existing) {
-        const { error } = await supabase.from('user_settings').update(payload).eq('user_id', user.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('user_settings').insert({ user_id: user.id, ...payload });
-        if (error) throw error;
-      }
+      updateUserSettings(userId, {
+        baseSalary: baseSalary ? parseFloat(baseSalary) : null,
+        taxRate: taxRate ? parseFloat(taxRate) : null,
+        kpiPercentage: kpiPercentage ? parseFloat(kpiPercentage) : 70,
+        transportAllowance: transportAllowance ? parseFloat(transportAllowance) : 0,
+        transportApplied,
+        internetAllowance: internetAllowance ? parseFloat(internetAllowance) : 0,
+        seniorBonus: seniorBonus ? parseFloat(seniorBonus) : 0,
+        languageAllowance: languageAllowance ? parseFloat(languageAllowance) : 0,
+        salaryPaymentDay: salaryPaymentDay ? parseInt(salaryPaymentDay) : 27,
+        salaryDelayMonths: salaryDelayMonths ? parseInt(salaryDelayMonths) : 1,
+        kpiDelayMonths: kpiDelayMonths ? parseInt(kpiDelayMonths) : 2,
+        employeeType,
+        startMonth: startMonth || null,
+      } as any);
       toast.success("Salary settings saved");
     } catch (err: any) {
       toast.error(err?.message || "Failed to save");
@@ -175,38 +158,27 @@ export default function Settings() {
     }
   };
 
-  const updateProfileMutation = useMutation({
-    mutationFn: async ({ newUsername, newDisplayName }: { newUsername: string; newDisplayName: string }) => {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ username: newUsername, display_name: newDisplayName } as any)
-        .eq("user_id", user?.id || "");
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["profile", user?.id] });
-      toast.success("Profile updated successfully");
-    },
-    onError: (err: PostgrestError) => {
-      const msg = err?.message?.includes("violates") || err?.code === "23514"
-        ? "Username is invalid based on server rules"
-        : err?.message || "An error occurred while updating";
-      toast.error(msg);
-    },
-  });
-
-  const onProfileSubmit = async (e: React.FormEvent) => {
+  const onProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     try { usernameSchema.parse(username); } catch (err) {
       if (err instanceof z.ZodError) { toast.error(err.errors[0].message); return; }
     }
-    updateProfileMutation.mutate({ newUsername: username, newDisplayName: displayName });
-    const { error } = await supabase.auth.updateUser({ data: { autosaveMode } });
-    if (error) toast.error("Failed to save preferences: " + error.message);
-    else toast.success("Preferences saved");
+    setIsProfileSaving(true);
+    try {
+      localStorage.setItem("gt_profile_" + userId, JSON.stringify({
+        username,
+        displayName,
+        autosaveMode,
+      }));
+      toast.success("Profile updated successfully");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save profile");
+    } finally {
+      setIsProfileSaving(false);
+    }
   };
 
-  const onPasswordSubmit = async (e: React.FormEvent) => {
+  const onPasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) { toast.error("Passwords do not match"); return; }
     if (oldPassword === newPassword) { toast.error("New password must be different"); return; }
@@ -214,12 +186,25 @@ export default function Settings() {
       if (err instanceof z.ZodError) { toast.error(err.errors[0].message); return; }
     }
     setIsPasswordLoading(true);
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email: user?.email || "", password: oldPassword });
-    if (signInError) { setIsPasswordLoading(false); toast.error("Incorrect old password"); return; }
-    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-    setIsPasswordLoading(false);
-    if (updateError) toast.error(updateError.message);
-    else { toast.success("Password changed successfully"); setOldPassword(""); setNewPassword(""); setConfirmPassword(""); }
+    // Local auth: store password hash in localStorage
+    // This is NOT secure - it's for local mode only
+    try {
+      const stored = localStorage.getItem("gt_password_" + userId);
+      if (stored && stored !== oldPassword) {
+        toast.error("Incorrect current password");
+        setIsPasswordLoading(false);
+        return;
+      }
+      localStorage.setItem("gt_password_" + userId, newPassword);
+      toast.success("Password changed successfully");
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      toast.error("Failed to change password");
+    } finally {
+      setIsPasswordLoading(false);
+    }
   };
 
   return (
@@ -254,14 +239,12 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2"><User className="h-3.5 w-3.5 text-muted-foreground" /> Display Name</Label>
-                  <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your display name"
-                    disabled={isProfileLoading || updateProfileMutation.isPending} />
+                  <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your display name" disabled={isProfileSaving} />
                   <p className="text-[11px] text-muted-foreground">The name shown to others</p>
                 </div>
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2"><User className="h-3.5 w-3.5 text-muted-foreground" /> Username</Label>
-                  <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter username"
-                    disabled={isProfileLoading || updateProfileMutation.isPending} />
+                  <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter username" disabled={isProfileSaving} />
                   <p className="text-[11px] text-muted-foreground">3-20 characters, used as your unique identifier</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -287,7 +270,7 @@ export default function Settings() {
                     </Select>
                   </div>
                 </div>
-                <Button type="submit" disabled={isProfileLoading || updateProfileMutation.isPending} className="w-full sm:w-auto">
+                <Button type="submit" disabled={isProfileSaving} className="w-full sm:w-auto">
                   <Save className="mr-2 h-4 w-4" /> Save Changes
                 </Button>
               </form>
@@ -446,7 +429,7 @@ export default function Settings() {
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Change Password</CardTitle>
-              <CardDescription>Enter your current password for verification, then set a new one.</CardDescription>
+              <CardDescription>Set a local password for your account. Stored on this device only.</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={onPasswordSubmit} className="space-y-4 max-w-md">
@@ -481,6 +464,9 @@ export default function Settings() {
                 <Button type="submit" disabled={isPasswordLoading} className="w-full sm:w-auto">
                   <Lock className="mr-2 h-4 w-4" /> Update Password
                 </Button>
+                <p className="text-[10px] text-muted-foreground">
+                  ⚠️ Password is stored locally on this device. In local mode, there is no server-side authentication.
+                </p>
               </form>
             </CardContent>
           </Card>

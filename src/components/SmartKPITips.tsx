@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
 import { Lightbulb, TrendingUp, Phone, SmilePlus, Target } from "lucide-react";
+import { getDailyChanges, getMonthData } from "@/lib/store";
 
 interface SmartKPITipsProps {
   userId: string;
@@ -37,24 +37,28 @@ export const SmartKPITips = ({
   const [recordedDays, setRecordedDays] = useState(0);
 
   useEffect(() => {
-    const load = async () => {
-      if (!userId) return;
-      const startDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
-      const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-      const endDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${lastDay}`;
-
-      const { data } = await supabase
-        .from('daily_survey_calls')
-        .select('total_calls')
-        .eq('user_id', userId)
-        .gte('call_date', startDate)
-        .lte('call_date', endDate);
-
-      const valid = (data || []).filter(r => (r.total_calls || 0) > 0);
-      setTotalCalls(valid.reduce((s, r) => s + (r.total_calls || 0), 0));
-      setRecordedDays(valid.length);
-    };
-    load();
+    if (!userId) return;
+    try {
+      const md = getMonthData(userId, selectedYear, selectedMonth);
+      const changes = getDailyChanges(md.id);
+      const dayMap = new Map<string, number>();
+      changes.forEach((c) => {
+        if (c.fieldName === "good" || c.fieldName === "genesysGood" ||
+            c.fieldName === "bad" || c.fieldName === "genesysBad") {
+          const current = dayMap.get(c.changeDate) || 0;
+          dayMap.set(c.changeDate, current + Math.abs(c.changeAmount));
+        }
+      });
+      let total = 0;
+      let days = 0;
+      dayMap.forEach((v) => {
+        if (v > 0) { total += v; days++; }
+      });
+      setTotalCalls(total);
+      setRecordedDays(days);
+    } catch (e) {
+      console.error(e);
+    }
   }, [userId, selectedMonth, selectedYear]);
 
   const avgDailyCalls = useMemo(() => recordedDays > 0 ? totalCalls / recordedDays : 0, [totalCalls, recordedDays]);
@@ -72,7 +76,6 @@ export const SmartKPITips = ({
       return result;
     }
 
-    // Productivity tips
     if (avgDailyCalls < 26 && recordedDays > 0) {
       const needed = Math.ceil(26 * recordedDays - totalCalls);
       result.push({
@@ -99,7 +102,6 @@ export const SmartKPITips = ({
       });
     }
 
-    // CSAT tips
     if (csatPercentage < 87 && totalSurveys > 0) {
       const needed = Math.max(0, Math.ceil((0.87 * totalSurveys - totalGood) / (1 - 0.87)));
       result.push({

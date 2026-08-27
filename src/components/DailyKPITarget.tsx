@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
 import { Target, Phone, SmilePlus, ArrowUp } from "lucide-react";
+import { getDailyChanges, getMonthData } from "@/lib/store";
+import { useAuth } from "@/hooks/useAuth";
 
 interface DailyKPITargetProps {
   userId: string;
@@ -24,66 +25,66 @@ export const DailyKPITarget = ({
   remainingWorkDays,
   kpiScore,
 }: DailyKPITargetProps) => {
+  const { user } = useAuth();
   const [totalCalls, setTotalCalls] = useState(0);
   const [recordedDays, setRecordedDays] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
-      if (!userId) return;
-      setLoading(true);
-      try {
-        const startDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
-        const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-        const endDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${lastDay}`;
-
-        const { data } = await supabase
-          .from('daily_survey_calls')
-          .select('total_calls')
-          .eq('user_id', userId)
-          .gte('call_date', startDate)
-          .lte('call_date', endDate);
-
-        const valid = (data || []).filter(r => (r.total_calls || 0) > 0);
-        setTotalCalls(valid.reduce((s, r) => s + (r.total_calls || 0), 0));
-        setRecordedDays(valid.length);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [userId, selectedMonth, selectedYear]);
+    if (!user) return;
+    setLoading(true);
+    try {
+      const md = getMonthData(userId || "local", selectedYear, selectedMonth);
+      const changes = getDailyChanges(md.id);
+      // Count days with call-related changes as proxy for productivity
+      // Since we no longer have daily_survey_calls, we derive from daily changes
+      const dayMap = new Map<string, { good: number; bad: number }>();
+      changes.forEach((c) => {
+        const date = c.changeDate;
+        if (!dayMap.has(date)) dayMap.set(date, { good: 0, bad: 0 });
+        const entry = dayMap.get(date)!;
+        if (c.fieldName === "good" || c.fieldName === "genesysGood") entry.good += c.changeAmount;
+        if (c.fieldName === "bad" || c.fieldName === "genesysBad") entry.bad += c.changeAmount;
+      });
+      // Estimate calls as total surveys per day (good + bad changes)
+      let total = 0;
+      let days = 0;
+      dayMap.forEach((v) => {
+        const calls = v.good + Math.abs(v.bad);
+        if (calls > 0) {
+          total += calls;
+          days++;
+        }
+      });
+      setTotalCalls(total);
+      setRecordedDays(days);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, userId, selectedMonth, selectedYear]);
 
   const avgCalls = useMemo(() => recordedDays > 0 ? totalCalls / recordedDays : 0, [totalCalls, recordedDays]);
-  
-  // What's needed today for each KPI component
+
   const targets = useMemo(() => {
     const days = remainingWorkDays ?? 1;
-    
-    // Calls needed for 100% productivity (30/day avg)
     const totalDays = recordedDays + days;
     const callsNeeded100 = Math.max(0, Math.ceil(30 * totalDays - totalCalls));
     const callsPerDay100 = Math.ceil(callsNeeded100 / Math.max(1, days));
-    
-    // Calls needed for 75% productivity (28/day avg)
     const callsNeeded75 = Math.max(0, Math.ceil(28 * totalDays - totalCalls));
     const callsPerDay75 = Math.ceil(callsNeeded75 / Math.max(1, days));
 
-    // Good ratings needed for 93% CSAT (100% score)
-    const goodNeeded93 = totalSurveys > 0 
+    const goodNeeded93 = totalSurveys > 0
       ? Math.max(0, Math.ceil((0.93 * totalSurveys - totalGood) / (1 - 0.93)))
       : 0;
     const goodPerDay93 = Math.ceil(goodNeeded93 / Math.max(1, days));
 
-    // Good ratings needed for 90% CSAT (75% score)
-    const goodNeeded90 = totalSurveys > 0 
+    const goodNeeded90 = totalSurveys > 0
       ? Math.max(0, Math.ceil((0.90 * totalSurveys - totalGood) / (1 - 0.90)))
       : 0;
     const goodPerDay90 = Math.ceil(goodNeeded90 / Math.max(1, days));
 
-    // Determine which target to show
     const isCallsAt100 = avgCalls >= 30;
     const isCallsAt75 = avgCalls >= 28;
     const isCsatAt100 = csatPercentage >= 93;
@@ -118,7 +119,6 @@ export const DailyKPITarget = ({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {/* Calls target */}
         <div className={`rounded-lg p-2.5 ${targets.callsHit ? "bg-success/10 border border-success/20" : "bg-muted/40"}`}>
           <div className="flex items-center gap-1.5 mb-1">
             <Phone className={`h-3.5 w-3.5 ${targets.callsHit ? "text-success" : "text-primary"}`} />
@@ -132,7 +132,6 @@ export const DailyKPITarget = ({
           </p>
         </div>
 
-        {/* CSAT target */}
         <div className={`rounded-lg p-2.5 ${targets.csatHit ? "bg-success/10 border border-success/20" : "bg-muted/40"}`}>
           <div className="flex items-center gap-1.5 mb-1">
             <SmilePlus className={`h-3.5 w-3.5 ${targets.csatHit ? "text-success" : "text-primary"}`} />
@@ -147,7 +146,6 @@ export const DailyKPITarget = ({
         </div>
       </div>
 
-      {/* Motivation line */}
       {!allHit && kpiScore > 0 && (
         <div className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <ArrowUp className="h-3 w-3 text-primary" />

@@ -3,7 +3,7 @@ import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 import { useMemo, useState, useEffect } from "react";
 import { PercentageDisplay } from "@/components/PercentageDisplay";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { getDailyChanges, getMonthData } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 
 export interface MonthMetrics {
@@ -81,46 +81,52 @@ export const ThreeMonthPerformance = ({
   const [selectedMetrics, setSelectedMetrics] = useState<MetricType[]>(["csat", "karma", "fcr", "phone"]);
   const [kpiDataByMonth, setKpiDataByMonth] = useState<Record<string, KpiData>>({});
 
-  // Fetch KPI-related data for selected months
+  // Fetch KPI-related data for selected months from local store
   useEffect(() => {
     if (!user) return;
     const needsKpiData = selectedMetrics.some(m => ["kpi", "productivity", "absence"].includes(m));
-    if (!needsKpiData || metrics.length === 0) return;
+    if (!needsKpiData || metrics.length === 0) { setKpiDataByMonth({}); return; }
 
-    const fetchKpiData = async () => {
-      const results: Record<string, KpiData> = {};
+    const userId = user.id || "local";
+    const results: Record<string, KpiData> = {};
 
-      await Promise.all(metrics.map(async (m) => {
-        const key = `${m.year}-${m.month}`;
-        const startDate = `${m.year}-${String(m.month + 1).padStart(2, '0')}-01`;
-        const endMonth = m.month + 2 > 12 ? 1 : m.month + 2;
-        const endYear = m.month + 2 > 12 ? m.year + 1 : m.year;
-        const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    for (const m of metrics) {
+      const key = `${m.year}-${m.month}`;
+      try {
+        const md = getMonthData(userId, m.year, m.month);
+        const changes = getDailyChanges(md.id);
 
-        // Fetch survey calls for productivity
-        const { data: callsData } = await supabase
-          .from('daily_survey_calls')
-          .select('total_calls')
-          .eq('user_id', user.id)
-          .gte('call_date', startDate)
-          .lt('call_date', endDate);
-
-        const validDays = (callsData || []).filter(c => c.total_calls > 0);
-        const totalCalls = validDays.reduce((sum, c) => sum + c.total_calls, 0);
-        const avgCalls = validDays.length > 0 ? totalCalls / validDays.length : 0;
+        // Calculate productivity from daily changes
+        const dayMap = new Map<string, number>();
+        changes.forEach(c => {
+          if (c.fieldName === "good" || c.fieldName === "genesysGood" ||
+              c.fieldName === "bad" || c.fieldName === "genesysBad") {
+            const current = dayMap.get(c.changeDate) || 0;
+            dayMap.set(c.changeDate, current + Math.abs(c.changeAmount));
+          }
+        });
+        let totalCalls = 0;
+        let validDays = 0;
+        dayMap.forEach(v => { if (v > 0) { totalCalls += v; validDays++; } });
+        const avgCalls = validDays > 0 ? totalCalls / validDays : 0;
         const productivityScore = getProductivityScore(avgCalls);
 
-        // Fetch shifts for absence
-        const { data: shiftsData } = await supabase
-          .from('daily_shifts')
-          .select('is_off_day, absence_type')
-          .eq('user_id', user.id)
-          .gte('shift_date', startDate)
-          .lt('shift_date', endDate);
-
-        const absenceDays = (shiftsData || []).filter(s =>
-          s.is_off_day && (s.absence_type === 'sick_leave' || s.absence_type === 'unexcused')
-        ).length;
+        // Count absence days from localStorage shifts
+        const lastDay = new Date(m.year, m.month + 1, 0).getDate();
+        let absenceDays = 0;
+        for (let d = 1; d <= lastDay; d++) {
+          const dateStr = `${m.year}-${String(m.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const shiftKey = `gt_shifts_${userId}_${dateStr}`;
+          const raw = localStorage.getItem(shiftKey);
+          if (raw) {
+            try {
+              const shift = JSON.parse(raw);
+              if (shift.is_off_day && (shift.absence_type === 'sick_leave' || shift.absence_type === 'unexcused')) {
+                absenceDays++;
+              }
+            } catch {}
+          }
+        }
         const absenceGate = getAbsenceGate(absenceDays);
 
         // Calculate KPI
@@ -129,12 +135,12 @@ export const ThreeMonthPerformance = ({
         const kpi = (base * absenceGate) / 100;
 
         results[key] = { productivity: productivityScore, absenceGate, kpi, avgCalls, absenceDays };
-      }));
+      } catch (e) {
+        console.error('Error fetching KPI data for month:', m.month, m.year, e);
+      }
+    }
 
-      setKpiDataByMonth(results);
-    };
-
-    fetchKpiData();
+    setKpiDataByMonth(results);
   }, [user, metrics, selectedMetrics]);
 
   const toggleMetric = (metric: MetricType) => {

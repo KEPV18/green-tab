@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Phone, SmilePlus, CalendarOff, Trophy, DollarSign, Pencil, Save, X } from "lucide-react";
+import { getMonthData, getDailyChanges, getUserSettings, updateMonthData } from "@/lib/store";
 
 interface PhoneBonusKPIProps {
   userId: string;
@@ -58,6 +58,8 @@ const getBadgeVariant = (score: number): "default" | "secondary" | "destructive"
   return "destructive";
 };
 
+const SHIFT_PREFIX = "gt_shifts_";
+
 export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercentage, totalSurveys = 0 }: PhoneBonusKPIProps) => {
   const [totalCalls, setTotalCalls] = useState(0);
   const [recordedDays, setRecordedDays] = useState(0);
@@ -66,92 +68,76 @@ export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercent
   const [taxRate, setTaxRate] = useState<number | null>(null);
   const [kpiPercentage, setKpiPercentage] = useState<number>(70);
   const [loading, setLoading] = useState(true);
-  const [perfId, setPerfId] = useState<string | null>(null);
   const [manualProductivity, setManualProductivity] = useState<number | null>(null);
   const [useManual, setUseManual] = useState(false);
   const [manualInput, setManualInput] = useState<string>("");
   const [editingManual, setEditingManual] = useState(false);
 
   useEffect(() => {
-    const loadData = async () => {
-      if (!userId) return;
-      setLoading(true);
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const md = getMonthData(userId, selectedYear, selectedMonth);
+      const changes = getDailyChanges(md.id);
 
-      try {
-        const startDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
-        const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-        const endDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${lastDay}`;
-
-        // Load total calls from daily_survey_calls (only days with records)
-        const { data: callsData } = await supabase
-          .from('daily_survey_calls')
-          .select('total_calls')
-          .eq('user_id', userId)
-          .gte('call_date', startDate)
-          .lte('call_date', endDate);
-
-        const validCallDays = (callsData || []).filter(r => (r.total_calls || 0) > 0);
-        const calls = validCallDays.reduce((sum, r) => sum + (r.total_calls || 0), 0);
-        setTotalCalls(calls);
-        setRecordedDays(validCallDays.length);
-
-        // Load shifts to count absence days
-        const { data: shiftsData } = await supabase
-          .from('daily_shifts')
-          .select('is_off_day, absence_type')
-          .eq('user_id', userId)
-          .gte('shift_date', startDate)
-          .lte('shift_date', endDate);
-
-        const shifts = shiftsData || [];
-        const absence = shifts.filter(s => 
-          s.is_off_day && (s.absence_type === 'sick_leave' || s.absence_type === 'unexcused')
-        ).length;
-
-        setAbsenceDays(absence);
-
-        // Load manual productivity from performance_data
-        const { data: perfRow } = await supabase
-          .from('performance_data')
-          .select('id, manual_productivity')
-          .eq('user_id', userId)
-          .eq('year', selectedYear)
-          .eq('month', selectedMonth)
-          .maybeSingle();
-        if (perfRow) {
-          setPerfId((perfRow as any).id);
-          const mp = (perfRow as any).manual_productivity;
-          if (mp != null) {
-            setManualProductivity(Number(mp));
-            setUseManual(true);
-            setManualInput(String(mp));
-          } else {
-            setManualProductivity(null);
-            setUseManual(false);
-            setManualInput("");
-          }
+      // Calculate calls from daily changes
+      const dayMap = new Map<string, number>();
+      changes.forEach(c => {
+        if (c.fieldName === "good" || c.fieldName === "genesysGood" ||
+            c.fieldName === "bad" || c.fieldName === "genesysBad") {
+          const current = dayMap.get(c.changeDate) || 0;
+          dayMap.set(c.changeDate, current + Math.abs(c.changeAmount));
         }
+      });
 
-        // Load salary settings
-        const { data: settings } = await supabase
-          .from('user_settings')
-          .select('base_salary, tax_rate, kpi_percentage')
-          .eq('user_id', userId)
-          .maybeSingle();
+      let calls = 0;
+      let days = 0;
+      dayMap.forEach(v => { if (v > 0) { calls += v; days++; } });
+      setTotalCalls(calls);
+      setRecordedDays(days);
 
-        if (settings) {
-          setBaseSalary((settings as any).base_salary ?? null);
-          setTaxRate((settings as any).tax_rate ?? null);
-          setKpiPercentage((settings as any).kpi_percentage ?? 70);
-        }
-      } catch (error) {
-        console.error('Error loading KPI data:', error);
-      } finally {
-        setLoading(false);
+      // Manual productivity from store
+      const mp = (md as any).manualProductivity;
+      if (mp != null) {
+        setManualProductivity(Number(mp));
+        setUseManual(true);
+        setManualInput(String(mp));
+      } else {
+        setManualProductivity(null);
+        setUseManual(false);
+        setManualInput("");
       }
-    };
 
-    loadData();
+      // Count absence days from localStorage shifts
+      const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+      let absence = 0;
+      for (let d = 1; d <= lastDay; d++) {
+        const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const key = `${SHIFT_PREFIX}${userId}_${dateStr}`;
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const shift = JSON.parse(raw);
+            if (shift.is_off_day && (shift.absence_type === 'sick_leave' || shift.absence_type === 'unexcused')) {
+              absence++;
+            }
+          } catch {}
+        }
+      }
+      setAbsenceDays(absence);
+
+      // Load salary settings
+      const settings = getUserSettings(userId) as any;
+      if (settings) {
+        setBaseSalary(settings.baseSalary ?? settings.base_salary ?? null);
+        setTaxRate(settings.taxRate ?? settings.tax_rate ?? null);
+        setKpiPercentage(settings.kpiPercentage ?? settings.kpi_percentage ?? 70);
+      }
+    } catch (error) {
+      console.error('Error loading KPI data:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [userId, selectedMonth, selectedYear]);
 
   const avgDailyCalls = useMemo(() => recordedDays > 0 ? totalCalls / recordedDays : 0, [totalCalls, recordedDays]);
@@ -162,63 +148,41 @@ export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercent
   const effectiveCsat = useMemo(() => totalSurveys === 0 ? 100 : csatPercentage, [totalSurveys, csatPercentage]);
   const csatScore = useMemo(() => getCsatScore(effectiveCsat), [effectiveCsat]);
   const absenceGate = useMemo(() => getAbsenceGate(absenceDays), [absenceDays]);
-  
+
   const finalBonus = useMemo(() => {
     const base = (productivityScore * 0.5) + (csatScore * 0.5);
     return (base * absenceGate) / 100;
   }, [productivityScore, csatScore, absenceGate]);
 
-  const ensurePerfId = async (): Promise<string | null> => {
-    if (perfId) return perfId;
-    const { data: existing } = await supabase
-      .from('performance_data')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('year', selectedYear)
-      .eq('month', selectedMonth)
-      .maybeSingle();
-    if (existing) {
-      setPerfId(existing.id);
-      return existing.id;
-    }
-    const { data: inserted, error } = await supabase
-      .from('performance_data')
-      .insert({ user_id: userId, year: selectedYear, month: selectedMonth, good: 0, bad: 0, karma_bad: 0, genesys_good: 0, genesys_bad: 0, good_phone: 0, good_chat: 0, good_email: 0 })
-      .select('id')
-      .single();
-    if (error) return null;
-    setPerfId(inserted.id);
-    return inserted.id;
-  };
-
-  const saveManualProductivity = async () => {
+  const saveManualProductivity = () => {
     const val = parseFloat(manualInput);
     if (isNaN(val) || val < 0 || val > 100) {
       toast.error("Enter a value between 0 and 100");
       return;
     }
-    const id = await ensurePerfId();
-    if (!id) { toast.error("Failed to save"); return; }
-    const { error } = await supabase
-      .from('performance_data')
-      .update({ manual_productivity: val } as any)
-      .eq('id', id);
-    if (error) { toast.error("Failed to save"); return; }
-    setManualProductivity(val);
-    setUseManual(true);
-    setEditingManual(false);
-    toast.success("Manual productivity saved");
+    try {
+      updateMonthData(userId, selectedYear, selectedMonth, { manualProductivity: val } as any);
+      setManualProductivity(val);
+      setUseManual(true);
+      setEditingManual(false);
+      toast.success("Manual productivity saved");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to save");
+    }
   };
 
-  const clearManualProductivity = async () => {
-    const id = await ensurePerfId();
-    if (!id) return;
-    await supabase.from('performance_data').update({ manual_productivity: null } as any).eq('id', id);
-    setManualProductivity(null);
-    setUseManual(false);
-    setManualInput("");
-    setEditingManual(false);
-    toast.success("Reverted to automatic productivity");
+  const clearManualProductivity = () => {
+    try {
+      updateMonthData(userId, selectedYear, selectedMonth, { manualProductivity: null } as any);
+      setManualProductivity(null);
+      setUseManual(false);
+      setManualInput("");
+      setEditingManual(false);
+      toast.success("Reverted to automatic productivity");
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Broadcast KPI score

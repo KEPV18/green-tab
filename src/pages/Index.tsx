@@ -6,7 +6,7 @@ import { CelebrationAnimation } from "@/components/CelebrationAnimation";
 import { useMotivationalAlerts } from "@/hooks/useMotivationalAlerts";
 import { DailySummaryCard } from "@/components/DailySummaryCard";
 import { QuickActionsBar } from "@/components/QuickActionsBar";
- 
+
 import { MetricCard } from "@/components/MetricCard";
 import { PercentageDisplay } from "@/components/PercentageDisplay";
 import { TicketsTable, Ticket } from "@/components/TicketsTable";
@@ -25,16 +25,33 @@ import { BreakScheduler } from "@/components/BreakScheduler";
 import { TodayShiftCard } from "@/components/TodayShiftCard";
 import { BestProductiveTime } from "@/components/BestProductiveTime";
 import { MonthEndForecast } from "@/components/MonthEndForecast";
-import CallsSurveyHub from "@/components/CallsSurveyHub";
 import { PhoneBonusKPI } from "@/components/PhoneBonusKPI";
 import { SmartKPITips } from "@/components/SmartKPITips";
 import { StreaksMilestones } from "@/components/StreaksMilestones";
 import { DailyKPITarget } from "@/components/DailyKPITarget";
 import { ManualProductivityCard } from "@/components/ManualProductivityCard";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { ThreeMonthPerformance, MonthMetrics } from "@/components/ThreeMonthPerformance";
-import { PerformanceData } from "@/lib/types";
+import {
+  getMonthData,
+  updateMonthData,
+  getTickets,
+  addTicket,
+  removeTicket,
+  getGenesysTickets,
+  addGenesysTicket,
+  removeGenesysTicket,
+  getDailyChanges,
+  addDailyChange,
+  getUserSettings,
+  updateUserSettings,
+  calculateFloorAverages,
+  listMonthData,
+  type MonthData,
+  type GenesysTicket as StoreGenesysTicket,
+  type DailyChange,
+  type FloorAverageData,
+} from "@/lib/store";
 import { STATIC_SCHEDULE } from "@/lib/staticSchedule";
 
 interface WeeklyData {
@@ -79,16 +96,18 @@ interface TodayStats {
   bad: number;
 }
 
-interface LeaderboardData {
-  csat_count: number;
-  dsat_count: number;
-  csat_percentage: number;
-  rank_in_team: number;
-  team_size: number;
+interface FloorAvgDisplay {
+  yourValue: number;
+  floorAvg: number;
+  diff: number;
+  status: "above" | "below" | "at";
 }
+
+const CSAT_TARGET_START = 75; // Changed from 88% to 75%
 
 const Index = () => {
   const { user } = useAuth();
+  const userId = user?.id || "local";
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [performanceId, setPerformanceId] = useState<string | null>(null);
@@ -129,17 +148,16 @@ const Index = () => {
     };
   }, []);
 
-
   // Smart rating dialog state
   const [smartDialogOpen, setSmartDialogOpen] = useState(false);
   const [smartDialogType, setSmartDialogType] = useState<'good' | 'bad' | null>(null);
-  
+
   // Today's stats for daily target
   const [todayStats, setTodayStats] = useState<TodayStats>({ good: 0, bad: 0 });
-  
-  // Team leaderboard data for current user
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
-  
+
+  // Floor averages for metrics
+  const [floorAverages, setFloorAverages] = useState<FloorAverageData | null>(null);
+
   const [data, setData] = useState<MonthlyData>({
     good: 0,
     bad: 0,
@@ -157,7 +175,7 @@ const Index = () => {
   const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([]);
   const [genesysTickets, setGenesysTickets] = useState<GenesysTicket[]>([]);
   const [offDays, setOffDays] = useState<number[] | null>(null);
-  const [monthlyChangeLog, setMonthlyChangeLog] = useState<any[]>([]);
+  const [monthlyChangeLog, setMonthlyChangeLog] = useState<DailyChange[]>([]);
   const [shiftStartTime, setShiftStartTime] = useState<string | null>(null);
   const [hasRestored, setHasRestored] = useState(false);
   const [selectedThreeMonths, setSelectedThreeMonths] = useState<Array<{ month: number; year: number }>>(() => {
@@ -210,13 +228,13 @@ const Index = () => {
   // Check if today should be counted based on shift time
   const shouldCountToday = useMemo(() => {
     if (!shiftStartTime) return true; // Default: count today
-    
+
     const now = new Date();
     const [hours, minutes] = shiftStartTime.split(':').map(Number);
-    
+
     // Create shift end time (shift start + 9 hours)
     const shiftEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours + 9, minutes);
-    
+
     // If current time is before shift end, count today
     return now <= shiftEnd;
   }, [shiftStartTime]);
@@ -247,539 +265,281 @@ const Index = () => {
     return working;
   }, [offDays, selectedMonth, selectedYear, shouldCountToday]);
 
-  // Load shift time from user_settings
+  // Load shift time from user settings (localStorage)
   useEffect(() => {
-    const loadShiftTime = async () => {
-      if (!user) return;
-      try {
-        const { data, error } = await supabase
-          .from('user_settings')
-          .select('shift_start_time')
-          .eq('user_id', user.id)
-          .maybeSingle();
-        
-        if (!error && data?.shift_start_time) {
-          setShiftStartTime(data.shift_start_time);
-        }
-      } catch (error) {
-        console.error('Error loading shift time:', error);
-      }
-    };
-    loadShiftTime();
-  }, [user]);
+    if (!user) return;
+    const settings = getUserSettings(userId);
+    if (settings.shiftStartTime) {
+      setShiftStartTime(settings.shiftStartTime);
+    }
+  }, [user, userId]);
 
-  // Load team leaderboard data for current user (by email)
-  useEffect(() => {
-    const loadLeaderboardData = async () => {
-      if (!user?.email) return;
-      try {
-        const { data, error } = await supabase
-          .from('team_leaderboard')
-          .select('csat_count, dsat_count, csat_percentage, rank_in_team, team_size')
-          .eq('agent_email', user.email)
-          .eq('year', selectedYear)
-          .eq('month', selectedMonth + 1)
-          .maybeSingle();
-        
-        if (!error && data) {
-          setLeaderboardData(data as LeaderboardData);
-        } else {
-          setLeaderboardData(null);
-        }
-      } catch (err) {
-        console.error('Error loading leaderboard data:', err);
-        setLeaderboardData(null);
-      }
-    };
-    loadLeaderboardData();
-  }, [user?.email, selectedYear, selectedMonth]);
-
-  // Load data from database when month/year changes or user changes
+  // Load data from localStorage when month/year changes or user changes
   useEffect(() => {
     if (user) {
       loadMonthData();
       loadPreviousMonthData();
     }
   }, [selectedMonth, selectedYear, user]);
+
   useEffect(() => {
     if (user) {
       loadSelectedMonthsData();
     }
   }, [selectedThreeMonths, user, includeKarmaInCSAT]);
 
-  const loadMonthData = async () => {
+  const loadMonthData = () => {
     if (!user) return;
-    
-    try {
-      const { data: perfDataRaw, error } = await supabase
-        .from('performance_data')
-        .select('*, tickets(*)')
-        .eq('year', selectedYear)
-        .eq('month', selectedMonth)
-        .eq('user_id', user.id)
-        .maybeSingle();
 
-      if (error) throw error;
-      
-      const perfData = perfDataRaw as unknown as PerformanceData;
+    const monthData = getMonthData(userId, selectedYear, selectedMonth);
+    setPerformanceId(monthData.id);
 
-      if (perfData) {
-        setPerformanceId(perfData.id);
-        
-        // Use DB off days or fallback to static schedule
-        let loadedOffDays = perfData.off_days || null;
-        if (!loadedOffDays || loadedOffDays.length === 0) {
-          loadedOffDays = STATIC_SCHEDULE
-            .filter(s => {
-              const [y, m] = s.date.split('-').map(Number);
-              return y === selectedYear && (m - 1) === selectedMonth && s.is_off_day;
-            })
-            .map(s => parseInt(s.date.split('-')[2], 10));
-        }
-        setOffDays(loadedOffDays);
-
-        const loadedData = {
-          good: perfData.good || 0,
-          bad: perfData.bad || 0,
-          karmaBad: perfData.karma_bad || 0,
-          genesysGood: perfData.genesys_good || 0,
-          genesysBad: perfData.genesys_bad || 0,
-          fcr: perfData.fcr || 0,
-          goodByChannel: {
-            phone: perfData.good_phone || 0,
-            chat: perfData.good_chat || 0,
-            email: perfData.good_email || 0,
-          },
-          badByChannel: {
-            phone: perfData.bad_phone || 0,
-            chat: perfData.bad_chat || 0,
-            email: perfData.bad_email || 0,
-          },
-          tickets: (perfData.tickets || []).map((t: any) => ({
-            id: t.id,
-            ticketId: t.ticket_id,
-            type: t.type,
-            channel: t.channel,
-            note: t.note || "",
-          })),
-        };
-
-        // Auto-generate missing DSAT/Karma ticket records
-        const existingBadTickets = loadedData.tickets.length;
-        const totalBadExpected = (perfData.bad || 0) + (perfData.karma_bad || 0);
-        if (totalBadExpected > existingBadTickets && perfData.id) {
-          const newTickets: Array<{ performance_id: string; user_id: string; ticket_id: string; type: string; channel: string; note: string }> = [];
-          // Distribute: first fill DSAT, then Karma
-          const existingDsat = loadedData.tickets.filter(t => t.type === 'DSAT').length;
-          const existingKarma = loadedData.tickets.filter(t => t.type === 'Karma').length;
-          const missingDsat = Math.max(0, (perfData.bad || 0) - existingDsat);
-          const missingKarma = Math.max(0, (perfData.karma_bad || 0) - existingKarma);
-          
-          for (let i = 0; i < missingDsat; i++) {
-            newTickets.push({
-              performance_id: perfData.id,
-              user_id: user.id,
-              ticket_id: `DSAT-${existingDsat + i + 1}`,
-              type: 'DSAT',
-              channel: 'Phone',
-              note: '',
-            });
-          }
-          for (let i = 0; i < missingKarma; i++) {
-            newTickets.push({
-              performance_id: perfData.id,
-              user_id: user.id,
-              ticket_id: `KARMA-${existingKarma + i + 1}`,
-              type: 'Karma',
-              channel: 'Phone',
-              note: '',
-            });
-          }
-          
-          if (newTickets.length > 0) {
-            const { data: insertedTickets } = await supabase
-              .from('tickets')
-              .insert(newTickets)
-              .select();
-            
-            if (insertedTickets) {
-              const mapped = insertedTickets.map((t: any) => ({
-                id: t.id,
-                ticketId: t.ticket_id,
-                type: t.type as "DSAT" | "Karma",
-                channel: t.channel as "Phone" | "Chat" | "Email",
-                note: t.note || "",
-              }));
-              loadedData.tickets = [...loadedData.tickets, ...mapped];
-            }
-          }
-        }
-
-        setData(loadedData);
-        setPreviousData(loadedData);
-        
-        // Calculate weekly data from daily changes
-        await calculateWeeklyDataFromChanges(perfData.id);
-        
-        // Load today's stats from daily changes
-        await loadTodayStats(perfData.id);
-        await loadMonthlyChangeLog(perfData.id);
-        
-        // Load Genesys tickets
-        const { data: genesysTicketsFromDB, error: genesysError } = await supabase
-          .from('genesys_tickets')
-          .select('*')
-          .eq('performance_id', perfData.id);
-        
-        if (!genesysError && genesysTicketsFromDB) {
-          const loaded = genesysTicketsFromDB.map((t: any) => ({
-            id: t.id,
-            ticketLink: t.ticket_link,
-            ratingScore: t.rating_score,
-            customerPhone: t.customer_phone || "",
-            ticketDate: t.ticket_date,
-            ticketId: t.ticket_id || "",
-            channel: (t.channel as "Phone" | "Chat" | "Email") || "Phone",
-            note: t.note || "",
-          }));
-          
-          // Auto-generate missing good ticket records for regular good ratings
-          // Merge 'good' counter into genesys tickets to avoid double-counting
-          const existingGoodGenesys = loaded.filter(t => t.ratingScore >= 7 && t.ratingScore <= 9).length;
-          const regularGood = perfData.good || 0;
-          
-          if (regularGood > 0 && perfData.id) {
-            // Move regular good into genesys tickets
-            const newGenesysTickets = [];
-            const today = new Date().toISOString().split('T')[0];
-            
-            for (let i = 0; i < regularGood; i++) {
-              newGenesysTickets.push({
-                performance_id: perfData.id,
-                user_id: user.id,
-                ticket_link: '',
-                rating_score: 8,
-                customer_phone: '',
-                ticket_date: today,
-              });
-            }
-            
-            const { data: insertedGenesys } = await supabase
-              .from('genesys_tickets')
-              .insert(newGenesysTickets)
-              .select();
-            
-            if (insertedGenesys) {
-              const mapped = insertedGenesys.map((t: any) => ({
-                id: t.id,
-                ticketLink: t.ticket_link,
-                ratingScore: t.rating_score,
-                customerPhone: t.customer_phone || "",
-                ticketDate: t.ticket_date,
-                ticketId: "",
-                channel: "Phone" as "Phone" | "Chat" | "Email",
-                note: "",
-              }));
-              loaded.push(...mapped);
-              
-              // Reset 'good' to 0 and move to genesys_good to prevent double-counting
-              await supabase
-                .from('performance_data')
-                .update({ good: 0, genesys_good: existingGoodGenesys + regularGood })
-                .eq('id', perfData.id);
-              
-              // Update local state
-              loadedData.good = 0;
-              loadedData.genesysGood = existingGoodGenesys + regularGood;
-              setData(prev => ({ ...prev, good: 0, genesysGood: existingGoodGenesys + regularGood }));
-            }
-          }
-
-          // Set loaded tickets
-          setGenesysTickets(loaded);
-
-          // Recalculate good/bad by channel from the tickets themselves
-          let genesysGood = 0;
-          let genesysBad = 0;
-          const goodByChannel = { phone: 0, chat: 0, email: 0 };
-          const badByChannel = { phone: 0, chat: 0, email: 0 };
-
-          for (const t of loaded) {
-            const isGood = t.ratingScore >= 7 && t.ratingScore <= 9;
-            const channel = t.channel?.toLowerCase() || 'phone';
-            if (isGood) {
-              genesysGood++;
-              if (channel === 'phone') goodByChannel.phone++;
-              else if (channel === 'chat') goodByChannel.chat++;
-              else if (channel === 'email') goodByChannel.email++;
-            } else {
-              genesysBad++;
-              if (channel === 'phone') badByChannel.phone++;
-              else if (channel === 'chat') badByChannel.chat++;
-              else if (channel === 'email') badByChannel.email++;
-            }
-          }
-
-          // Update UI state
-          setData(prev => ({
-            ...prev,
-            genesysGood,
-            genesysBad,
-            goodByChannel,
-            badByChannel,
-          }));
-
-          // IMPORTANT: keep performance_data in sync with Genesys ticket truth (fixes wrong totals like 128)
-          const dbGenesysGood = Number(perfData.genesys_good || 0);
-          const dbGenesysBad = Number(perfData.genesys_bad || 0);
-          if (dbGenesysGood !== genesysGood || dbGenesysBad !== genesysBad) {
-            try {
-              await supabase
-                .from('performance_data')
-                .update({ genesys_good: genesysGood, genesys_bad: genesysBad })
-                .eq('id', perfData.id);
-            } catch {
-              // ignore sync errors; UI is already correct
-            }
-          }
-        }
-
-      } else {
-        // No data for this month, reset to empty
-        setPerformanceId(null);
-        setOffDays(null);
-        const emptyData = {
-          good: 0,
-          bad: 0,
-          karmaBad: 0,
-          genesysGood: 0,
-          genesysBad: 0,
-          fcr: 0,
-          tickets: [],
-          goodByChannel: { phone: 0, chat: 0, email: 0 },
-          badByChannel: { phone: 0, chat: 0, email: 0 },
-        };
-        setData(emptyData);
-        setPreviousData(emptyData);
-        setWeeklyData([]);
-        setGenesysTickets([]);
-        setTodayStats({ good: 0, bad: 0 });
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-      toast.error('Failed to load data');
+    // Use off_days or fallback to static schedule
+    let loadedOffDays = (monthData as any).offDays || null;
+    if (!loadedOffDays || loadedOffDays.length === 0) {
+      loadedOffDays = STATIC_SCHEDULE
+        .filter(s => {
+          const [y, m] = s.date.split('-').map(Number);
+          return y === selectedYear && (m - 1) === selectedMonth && s.is_off_day;
+        })
+        .map(s => parseInt(s.date.split('-')[2], 10));
     }
+    setOffDays(loadedOffDays);
+
+    const loadedData: MonthlyData = {
+      good: monthData.good || 0,
+      bad: monthData.bad || 0,
+      karmaBad: monthData.karmaBad || 0,
+      genesysGood: monthData.genesysGood || 0,
+      genesysBad: monthData.genesysBad || 0,
+      fcr: monthData.fcr || 0,
+      goodByChannel: {
+        phone: (monthData as any).goodByChannel?.phone || 0,
+        chat: (monthData as any).goodByChannel?.chat || 0,
+        email: (monthData as any).goodByChannel?.email || 0,
+      },
+      badByChannel: {
+        phone: (monthData as any).badByChannel?.phone || 0,
+        chat: (monthData as any).badByChannel?.chat || 0,
+        email: (monthData as any).badByChannel?.email || 0,
+      },
+      tickets: getTickets(monthData.id).map(t => ({
+        id: t.id,
+        ticketId: t.ticketId,
+        type: t.type as "DSAT" | "Karma",
+        channel: t.channel as "Phone" | "Chat" | "Email",
+        note: t.note || "",
+      })),
+    };
+
+    // Calculate weekly data from daily changes
+    const changes = getDailyChanges(monthData.id);
+    calculateWeeklyDataFromChanges(changes);
+    loadTodayStats(changes);
+    setMonthlyChangeLog(changes);
+
+    // Load Genesys tickets
+    const gTickets = getGenesysTickets(monthData.id);
+    const loadedGenesys: GenesysTicket[] = gTickets.map(t => ({
+      id: t.id,
+      ticketLink: t.ticketLink,
+      ratingScore: t.ratingScore,
+      customerPhone: t.customerPhone || "",
+      ticketDate: t.ticketDate,
+      ticketId: t.ticketId || "",
+      channel: (t.channel as "Phone" | "Chat" | "Email") || "Phone",
+      note: t.note || "",
+    }));
+    setGenesysTickets(loadedGenesys);
+
+    // Recalculate good/bad by channel from Genesys tickets
+    let genesysGood = 0;
+    let genesysBad = 0;
+    const goodByChannel = { phone: 0, chat: 0, email: 0 };
+    const badByChannel = { phone: 0, chat: 0, email: 0 };
+
+    for (const t of loadedGenesys) {
+      const isGood = t.ratingScore >= 7 && t.ratingScore <= 9;
+      const channel = (t.channel || "phone").toLowerCase() as "phone" | "chat" | "email";
+      if (isGood) {
+        genesysGood++;
+        if (channel in goodByChannel) goodByChannel[channel]++;
+      } else {
+        genesysBad++;
+        if (channel in badByChannel) badByChannel[channel]++;
+      }
+    }
+
+    // Calculate floor averages
+    const floorAvgs = calculateFloorAverages(monthData);
+    setFloorAverages(floorAvgs);
+
+    setData(loadedData);
+    setPreviousData(loadedData);
+    setHasRestored(false);
   };
 
-  const loadSelectedMonthsData = async () => {
+  const loadSelectedMonthsData = () => {
     if (!user) return;
+
+    const results: MonthMetrics[] = selectedThreeMonths.map(sel => {
+      const md = getMonthData(userId, sel.year, sel.month);
+      const good = md.good || 0;
+      const bad = md.bad || 0;
+      const karmaBad = md.karmaBad || 0;
+      const genesysGood = md.genesysGood || 0;
+      const genesysBad = md.genesysBad || 0;
+      const fcrVal = md.fcr || 0;
+
+      const totalGoodSel = good + genesysGood;
+      const totalBadSel = bad + genesysBad;
+      const totalSurveysSel = totalGoodSel + totalBadSel;
+      const totalKarmaBaseSel = totalGoodSel + totalBadSel + karmaBad;
+
+      const csatSel = totalSurveysSel > 0 ? (totalGoodSel / totalSurveysSel) * 100 : 0;
+      const karmaSel = totalKarmaBaseSel > 0 ? (totalGoodSel / totalKarmaBaseSel) * 100 : 0;
+
+      // Channel distribution from store data
+      const tickets = getTickets(md.id);
+      const phoneGood = (md as any).goodByChannel?.phone || 0;
+      const chatGood = (md as any).goodByChannel?.chat || 0;
+      const emailGood = (md as any).goodByChannel?.email || 0;
+      const phoneBad = tickets.filter(t => t.type === "DSAT" && t.channel === "Phone").length;
+      const chatBad = tickets.filter(t => t.type === "DSAT" && t.channel === "Chat").length;
+      const emailBad = tickets.filter(t => t.type === "DSAT" && t.channel === "Email").length;
+      const phoneKarma = tickets.filter(t => t.type === "Karma" && t.channel === "Phone").length;
+
+      return {
+        month: sel.month,
+        year: sel.year,
+        csat: csatSel,
+        karma: karmaSel,
+        fcr: fcrVal,
+        totalGood: totalGoodSel,
+        totalSurveys: totalSurveysSel,
+        totalKarmaBase: totalKarmaBaseSel,
+        phoneGood,
+        phoneBad,
+        phoneKarma,
+        chatGood,
+        chatBad,
+        emailGood,
+        emailBad,
+      };
+    });
+
+    setThreeMonthsMetrics(results);
+  };
+
+  const calculateWeeklyDataFromChanges = (changes: DailyChange[]) => {
+    if (!changes || changes.length === 0) {
+      setWeeklyData([]);
+      return;
+    }
+
+    const weeklyStats: Record<number, { csat: number; dsat: number }> = {
+      1: { csat: 0, dsat: 0 },
+      2: { csat: 0, dsat: 0 },
+      3: { csat: 0, dsat: 0 },
+      4: { csat: 0, dsat: 0 },
+    };
+
+    changes.forEach((change) => {
+      const date = new Date(change.changeDate);
+      const dayOfMonth = date.getDate();
+
+      let weekNumber;
+      if (dayOfMonth <= 7) weekNumber = 1;
+      else if (dayOfMonth <= 14) weekNumber = 2;
+      else if (dayOfMonth <= 21) weekNumber = 3;
+      else weekNumber = 4;
+
+      if (change.fieldName === "good" || change.fieldName === "genesysGood") {
+        weeklyStats[weekNumber].csat += change.changeAmount;
+      } else if (change.fieldName === "bad" || change.fieldName === "genesysBad") {
+        weeklyStats[weekNumber].dsat += change.changeAmount;
+      }
+    });
+
+    const calculatedWeeklyData = Object.entries(weeklyStats).map(([week, stats]) => ({
+      week: parseInt(week),
+      csat: stats.csat,
+      dsat: stats.dsat,
+    }));
+
+    setWeeklyData(calculatedWeeklyData);
+  };
+
+  const loadTodayStats = (changes: DailyChange[]) => {
     try {
-      // Fetch all selected months
-      const monthsToFetch = selectedThreeMonths;
-      const failedMonths: string[] = [];
-      const settled = await Promise.allSettled(
-        monthsToFetch.map(async (sel) => {
-          try {
-            const { data: perfData, error: perfErr } = await supabase
-              .from('performance_data')
-              .select('*')
-              .eq('year', sel.year)
-              .eq('month', sel.month)
-              .eq('user_id', user.id)
-              .maybeSingle();
-            if (perfErr) throw perfErr;
-            let perfSel = perfData as any;
+      const today = new Date().toISOString().split('T')[0];
+      let todayGood = 0;
+      let todayBad = 0;
 
-            // If nothing found try 1-based month (some rows might store months as 1-12)
-            if (!perfSel) {
-              const altMonth = sel.month + 1;
-              const { data: perfDataAlt, error: perfAltErr } = await supabase
-                .from('performance_data')
-                .select('*')
-                .eq('year', sel.year)
-                .eq('month', altMonth)
-                .eq('user_id', user.id)
-                .maybeSingle();
-              if (perfAltErr) throw perfAltErr;
-              if (perfDataAlt) {
-                perfSel = perfDataAlt as any;
-              }
-            }
-
-            if (!perfSel) {
-              failedMonths.push(`${sel.month}/${sel.year}`);
-              // return zeroed object but keep month/year so the UI shows the month
-              return {
-                month: sel.month,
-                year: sel.year,
-                csat: 0,
-                karma: 0,
-                fcr: 0,
-                totalGood: 0,
-                totalSurveys: 0,
-                totalKarmaBase: 0,
-                phoneGood: 0,
-                phoneBad: 0,
-                phoneKarma: 0,
-                chatGood: 0,
-                chatBad: 0,
-                emailGood: 0,
-                emailBad: 0,
-              };
-            }
-
-            const good = Number(perfSel.good || 0);
-            const bad = Number(perfSel.bad || 0);
-            const karmaBad = Number(perfSel.karma_bad || 0);
-            const genesysGood = Number(perfSel.genesys_good || 0);
-            const genesysBad = Number(perfSel.genesys_bad || 0);
-            const fcrVal = typeof perfSel?.fcr === 'number' ? perfSel.fcr : Number(perfSel?.fcr || 0);
-
-            const totalGoodSel = good + genesysGood;
-            const totalBadSel = bad + genesysBad;
-
-            // GOOD channel distribution: use performance_data (good_phone/chat/email) + remainder to Phone
-            const basePhoneGood = Number(perfSel.good_phone || 0);
-            const baseChatGood = Number(perfSel.good_chat || 0);
-            const baseEmailGood = Number(perfSel.good_email || 0);
-            const baseGoodSum = basePhoneGood + baseChatGood + baseEmailGood;
-            const phoneGoodSel = basePhoneGood + Math.max(0, totalGoodSel - baseGoodSum);
-            const chatGoodSel = baseChatGood;
-            const emailGoodSel = baseEmailGood;
-
-            // BAD channel distribution: use actual DSAT tickets by channel + remainder to Phone
-            const dsatCounts = { phone: 0, chat: 0, email: 0 };
-            if (perfSel.id) {
-              const { data: dsatTickets, error: dsatErr } = await supabase
-                .from('tickets')
-                .select('channel')
-                .eq('performance_id', perfSel.id)
-                .eq('user_id', user.id)
-                .eq('type', 'DSAT');
-              if (dsatErr) throw dsatErr;
-              (dsatTickets || []).forEach((t: any) => {
-                const ch = String(t.channel || 'Phone').toLowerCase();
-                if (ch === 'phone') dsatCounts.phone += 1;
-                else if (ch === 'chat') dsatCounts.chat += 1;
-                else if (ch === 'email') dsatCounts.email += 1;
-                else dsatCounts.phone += 1;
-              });
-            }
-            const dsatSum = dsatCounts.phone + dsatCounts.chat + dsatCounts.email;
-            const phoneBadSel = dsatCounts.phone + Math.max(0, totalBadSel - dsatSum);
-            const chatBadSel = dsatCounts.chat;
-            const emailBadSel = dsatCounts.email;
-
-            const phoneKarmaSel = karmaBad;
-
-            // CSAT total should be based on surveys only (good + bad). Karma is its own metric.
-            const totalSurveysSel = totalGoodSel + totalBadSel;
-            const totalKarmaBaseSel = totalGoodSel + totalBadSel + karmaBad;
-
-            const csatSel = totalSurveysSel > 0 ? (totalGoodSel / totalSurveysSel) * 100 : 0;
-            const karmaSel = totalKarmaBaseSel > 0 ? (totalGoodSel / totalKarmaBaseSel) * 100 : 0;
-
-            return {
-              month: sel.month,
-              year: sel.year,
-              csat: csatSel,
-              karma: karmaSel,
-              fcr: fcrVal,
-              totalGood: totalGoodSel,
-              totalSurveys: totalSurveysSel,
-              totalKarmaBase: totalKarmaBaseSel,
-              phoneGood: phoneGoodSel,
-              phoneBad: phoneBadSel,
-              phoneKarma: phoneKarmaSel,
-              chatGood: chatGoodSel,
-              chatBad: chatBadSel,
-              emailGood: emailGoodSel,
-              emailBad: emailBadSel,
-            };
-          } catch (err) {
-            console.warn('Error fetching month', sel, err);
-            failedMonths.push(`${sel.month}/${sel.year}`);
-            return {
-              month: sel.month,
-              year: sel.year,
-              csat: 0,
-              karma: 0,
-              fcr: 0,
-              totalGood: 0,
-              totalSurveys: 0,
-              totalKarmaBase: 0,
-              phoneGood: 0,
-              phoneBad: 0,
-              phoneKarma: 0,
-              chatGood: 0,
-              chatBad: 0,
-              emailGood: 0,
-              emailBad: 0,
-            };
+      changes.forEach((change) => {
+        if (change.changeDate === today) {
+          if (change.fieldName === "good" || change.fieldName === "genesysGood") {
+            todayGood += change.changeAmount;
+          } else if (change.fieldName === "bad" || change.fieldName === "genesysBad" || change.fieldName === "karmaBad") {
+            todayBad += change.changeAmount;
           }
-        })
-      );
-
-      // Extract values while preserving order
-      const results: any[] = settled.map((s, i) => {
-        if (s.status === 'fulfilled') return s.value;
-        // Shouldn't happen because we return from catch, but handle for safety
-        return {
-          month: monthsToFetch[i].month,
-          year: monthsToFetch[i].year,
-          csat: 0,
-          karma: 0,
-          fcr: 0,
-          totalGood: 0,
-          totalSurveys: 0,
-          totalKarmaBase: 0,
-          phoneGood: 0,
-          phoneBad: 0,
-          phoneKarma: 0,
-          chatGood: 0,
-          chatBad: 0,
-          emailGood: 0,
-          emailBad: 0,
-        };
+        }
       });
 
-      setThreeMonthsMetrics(results);
-    } catch (e) {
-      console.error('Error loading selected months:', e);
-      setThreeMonthsMetrics([]);
+      setTodayStats({ good: Math.max(0, todayGood), bad: Math.max(0, todayBad) });
+    } catch (error) {
+      console.error('Error loading today stats:', error);
     }
   };
 
-  const loadMonthlyChangeLog = async (perfId: string) => {
-    try {
-      const { data: changes, error } = await supabase
-        .from('daily_changes')
-        .select('*')
-        .eq('performance_id', perfId)
-        .order('created_at');
-      if (error) throw error;
-      setMonthlyChangeLog(changes || []);
-    } catch (e) {
-      setMonthlyChangeLog([]);
+  const loadPreviousMonthData = () => {
+    if (!user) return;
+
+    let prevMonth = selectedMonth - 1;
+    let prevYear = selectedYear;
+
+    if (prevMonth < 0) {
+      prevMonth = 11;
+      prevYear -= 1;
     }
+
+    const prevMd = getMonthData(userId, prevYear, prevMonth);
+    const prevTickets = getTickets(prevMd.id);
+
+    setPreviousMonthData({
+      good: prevMd.good || 0,
+      bad: prevMd.bad || 0,
+      karmaBad: prevMd.karmaBad || 0,
+      genesysGood: prevMd.genesysGood || 0,
+      genesysBad: prevMd.genesysBad || 0,
+      fcr: prevMd.fcr || 0,
+      goodByChannel: {
+        phone: (prevMd as any).goodByChannel?.phone || 0,
+        chat: (prevMd as any).goodByChannel?.chat || 0,
+        email: (prevMd as any).goodByChannel?.email || 0,
+      },
+      tickets: prevTickets.map(t => ({
+        id: t.id,
+        ticketId: t.ticketId,
+        type: t.type as "DSAT" | "Karma",
+        channel: t.channel as "Phone" | "Chat" | "Email",
+        note: t.note || "",
+      })),
+    });
   };
 
-  const restoreFromDailyChanges = async () => {
+  const restoreFromDailyChanges = () => {
     if (!user || !performanceId) return;
     try {
-      const { data: changes, error } = await supabase
-        .from('daily_changes')
-        .select('*')
-        .eq('performance_id', performanceId);
-      if (error) return;
+      const changes = getDailyChanges(performanceId);
       const totals = changes.reduce(
-        (acc: { good: number; bad: number; karmaBad: number; genesysGood: number; genesysBad: number }, c: any) => {
-          const amt = Number(c.change_amount) || 0;
-          if (c.field_name === 'good') acc.good += amt;
-          else if (c.field_name === 'bad') acc.bad += amt;
-          else if (c.field_name === 'karma_bad') acc.karmaBad += amt;
-          else if (c.field_name === 'genesys_good') acc.genesysGood += amt;
-          else if (c.field_name === 'genesys_bad') acc.genesysBad += amt;
+        (acc: { good: number; bad: number; karmaBad: number; genesysGood: number; genesysBad: number }, c: DailyChange) => {
+          const amt = Number(c.changeAmount) || 0;
+          if (c.fieldName === "good") acc.good += amt;
+          else if (c.fieldName === "bad") acc.bad += amt;
+          else if (c.fieldName === "karmaBad") acc.karmaBad += amt;
+          else if (c.fieldName === "genesysGood") acc.genesysGood += amt;
+          else if (c.fieldName === "genesysBad") acc.genesysBad += amt;
           return acc;
         },
         { good: 0, bad: 0, karmaBad: 0, genesysGood: 0, genesysBad: 0 }
@@ -792,23 +552,17 @@ const Index = () => {
         genesysGood: totals.genesysGood,
         genesysBad: totals.genesysBad,
       }));
-      const up = {
-        id: performanceId,
-        year: selectedYear,
-        month: selectedMonth,
+
+      // Also update the store
+      updateMonthData(userId, selectedYear, selectedMonth, {
         good: totals.good,
         bad: totals.bad,
-        karma_bad: totals.karmaBad,
-        genesys_good: totals.genesysGood,
-        genesys_bad: totals.genesysBad,
+        karmaBad: totals.karmaBad,
+        genesysGood: totals.genesysGood,
+        genesysBad: totals.genesysBad,
         fcr: data.fcr,
-        good_phone: data.goodByChannel.phone,
-        good_chat: data.goodByChannel.chat,
-        good_email: data.goodByChannel.email,
-        user_id: user.id,
-      } as any;
-      await supabase.from('performance_data').upsert(up, { onConflict: 'year,month,user_id' });
-      
+      } as any);
+
       // Update previousData to prevent double-counting changes on next save
       setPreviousData(prev => ({
         ...prev!,
@@ -818,12 +572,11 @@ const Index = () => {
         genesysGood: totals.genesysGood,
         genesysBad: totals.genesysBad,
       }));
-      
+
       setHasRestored(true);
       toast.success('Restored month totals from history');
     } catch {}
   };
-
 
   useEffect(() => {
     if (
@@ -841,142 +594,12 @@ const Index = () => {
     }
   }, [performanceId, monthlyChangeLog, data, hasRestored]);
 
-  const loadTodayStats = async (perfId: string) => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      const { data: changes, error } = await supabase
-        .from('daily_changes')
-        .select('*')
-        .eq('performance_id', perfId)
-        .eq('change_date', today);
-
-      if (error) throw error;
-      
-      let todayGood = 0;
-      let todayBad = 0;
-      
-      if (changes) {
-        changes.forEach((change: any) => {
-          if (change.field_name === 'good' || change.field_name === 'genesys_good') {
-            todayGood += change.change_amount;
-          } else if (change.field_name === 'bad' || change.field_name === 'genesys_bad' || change.field_name === 'karma_bad') {
-            todayBad += change.change_amount;
-          }
-        });
-      }
-      
-      setTodayStats({ good: Math.max(0, todayGood), bad: Math.max(0, todayBad) });
-    } catch (error) {
-      console.error('Error loading today stats:', error);
-    }
-  };
-
-  const loadPreviousMonthData = async () => {
-    if (!user) return;
-    
-    try {
-      let prevMonth = selectedMonth - 1;
-      let prevYear = selectedYear;
-      
-      if (prevMonth < 0) {
-        prevMonth = 11;
-        prevYear -= 1;
-      }
-      
-      const { data: perfData, error } = await supabase
-        .from('performance_data')
-        .select('*')
-        .eq('year', prevYear)
-        .eq('month', prevMonth)
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (perfData) {
-        setPreviousMonthData({
-          good: perfData.good || 0,
-          bad: perfData.bad || 0,
-          karmaBad: perfData.karma_bad || 0,
-          genesysGood: perfData.genesys_good || 0,
-          genesysBad: perfData.genesys_bad || 0,
-          fcr: typeof (perfData as any).fcr === 'number' ? (perfData as any).fcr : 0,
-          goodByChannel: {
-            phone: (perfData as any).good_phone || 0,
-            chat: (perfData as any).good_chat || 0,
-            email: (perfData as any).good_email || 0,
-          },
-          tickets: [],
-        });
-      } else {
-        setPreviousMonthData(null);
-      }
-    } catch (error) {
-      console.error('Error loading previous month data:', error);
-    }
-  };
-
-  const calculateWeeklyDataFromChanges = async (performanceId: string) => {
-    try {
-      // Get all daily changes for this performance period
-      const { data: changes, error } = await supabase
-        .from('daily_changes')
-        .select('*')
-        .eq('performance_id', performanceId)
-        .order('change_date');
-
-      if (error) throw error;
-      if (!changes || changes.length === 0) {
-        setWeeklyData([]);
-        return;
-      }
-
-      // Group changes by week
-      const weeklyStats: Record<number, { csat: number; dsat: number }> = {
-        1: { csat: 0, dsat: 0 },
-        2: { csat: 0, dsat: 0 },
-        3: { csat: 0, dsat: 0 },
-        4: { csat: 0, dsat: 0 },
-      };
-
-      changes.forEach((change: any) => {
-        const date = new Date(change.change_date);
-        const dayOfMonth = date.getDate();
-        
-        // Calculate week number based on day ranges
-        let weekNumber;
-        if (dayOfMonth <= 7) weekNumber = 1;
-        else if (dayOfMonth <= 14) weekNumber = 2;
-        else if (dayOfMonth <= 21) weekNumber = 3;
-        else weekNumber = 4;
-        
-        if (change.field_name === 'good' || change.field_name === 'genesys_good') {
-          weeklyStats[weekNumber].csat += change.change_amount;
-        } else if (change.field_name === 'bad' || change.field_name === 'genesys_bad') {
-          weeklyStats[weekNumber].dsat += change.change_amount;
-        }
-      });
-
-      const calculatedWeeklyData = Object.entries(weeklyStats).map(([week, stats]) => ({
-        week: parseInt(week),
-        csat: stats.csat,
-        dsat: stats.dsat,
-      }));
-
-      setWeeklyData(calculatedWeeklyData);
-    } catch (error) {
-      console.error('Error calculating weekly data:', error);
-      setWeeklyData([]);
-    }
-  };
-
-  const saveToDatabase = async () => {
+  const saveToDatabase = () => {
     if (!user) {
       toast.error('You must be logged in first');
       return;
     }
-    
+
     if (savingRef.current) {
       return;
     }
@@ -987,145 +610,101 @@ const Index = () => {
     const currentData = dataRef.current;
     const currentGenesysTickets = genesysTicketsRef.current;
     const currentPreviousData = previousDataRef.current;
-    const currentPerformanceId = performanceIdRef.current;
 
     try {
-      if (!user) return;
+      // Save month data to localStorage
+      updateMonthData(userId, selectedYear, selectedMonth, {
+        good: currentData.good,
+        bad: currentData.bad,
+        karmaBad: currentData.karmaBad,
+        genesysGood: currentData.genesysGood,
+        genesysBad: currentData.genesysBad,
+        fcr: currentData.fcr,
+      } as any);
 
-      // Ensure we have a performance record
-      const { data: perfRow, error: perfErr } = await supabase
-        .from("performance_data")
-        .upsert(
-          {
-            id: currentPerformanceId ?? undefined,
-            year: selectedYear,
-            month: selectedMonth,
-            good: currentData.good,
-            bad: currentData.bad,
-            karma_bad: currentData.karmaBad,
-            genesys_good: currentData.genesysGood,
-            genesys_bad: currentData.genesysBad,
-            fcr: currentData.fcr,
-            good_phone: currentData.goodByChannel.phone,
-            good_chat: currentData.goodByChannel.chat,
-            good_email: currentData.goodByChannel.email,
-            user_id: user.id,
-          } as any,
-          { onConflict: "year,month,user_id" }
-        )
-        .select()
-        .single();
-
-      if (perfErr || !perfRow) throw perfErr;
-
-      const savedPerformanceId = perfRow.id as string;
-      setPerformanceId(savedPerformanceId);
-      performanceIdRef.current = savedPerformanceId;
-
-      // Log incremental daily changes based on the last in-app snapshot (NOT DB totals)
+      // Log incremental daily changes
+      const currentPerformanceId = performanceIdRef.current;
       const baseline = currentPreviousData;
-      if (baseline) {
+      if (baseline && currentPerformanceId) {
         const fieldsToTrack = [
-          { field: "good", newVal: currentData.good, oldVal: baseline.good },
-          { field: "bad", newVal: currentData.bad, oldVal: baseline.bad },
-          { field: "karma_bad", newVal: currentData.karmaBad, oldVal: baseline.karmaBad },
-          { field: "genesys_good", newVal: currentData.genesysGood, oldVal: baseline.genesysGood },
-          { field: "genesys_bad", newVal: currentData.genesysBad, oldVal: baseline.genesysBad },
-          { field: "fcr", newVal: currentData.fcr, oldVal: baseline.fcr },
+          { field: "good" as const, newVal: currentData.good, oldVal: baseline.good },
+          { field: "bad" as const, newVal: currentData.bad, oldVal: baseline.bad },
+          { field: "karmaBad" as const, newVal: currentData.karmaBad, oldVal: baseline.karmaBad },
+          { field: "genesysGood" as const, newVal: currentData.genesysGood, oldVal: baseline.genesysGood },
+          { field: "genesysBad" as const, newVal: currentData.genesysBad, oldVal: baseline.genesysBad },
+          { field: "fcr" as const, newVal: currentData.fcr, oldVal: baseline.fcr },
         ];
 
-        const changesForInsert = fieldsToTrack
-          .filter((f) => f.newVal !== f.oldVal)
-          .map((f) => ({
-            field_name: f.field,
-            old_value: f.oldVal,
-            new_value: f.newVal,
-            change_amount: f.newVal - f.oldVal,
-          }));
+        const today = new Date().toISOString().split("T")[0];
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
 
-        if (changesForInsert.length > 0) {
-          const today = new Date().toISOString().split("T")[0];
-          const now = new Date();
-          const currentTime = `${now.getHours().toString().padStart(2, "0")}:${now
-            .getMinutes()
-            .toString()
-            .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-
-          const changesToInsert = changesForInsert.map((change) => ({
-            performance_id: savedPerformanceId,
-            change_date: today,
-            change_time: currentTime,
-            user_id: user.id,
-            ...change,
-          }));
-
-          const { error: changesError } = await supabase.from("daily_changes").insert(changesToInsert);
-          if (changesError) console.error("Error saving daily changes:", changesError);
+        for (const f of fieldsToTrack) {
+          if (f.newVal !== f.oldVal) {
+            addDailyChange(currentPerformanceId, userId, {
+              fieldName: f.field,
+              oldValue: f.oldVal,
+              newValue: f.newVal,
+              changeAmount: f.newVal - f.oldVal,
+              changeDate: today,
+              changeTime: currentTime,
+            });
+          }
         }
-      } else {
+
+        // Refresh change log
+        const changes = getDailyChanges(currentPerformanceId);
+        setMonthlyChangeLog(changes);
+        calculateWeeklyDataFromChanges(changes);
+        loadTodayStats(changes);
+      } else if (currentPerformanceId && currentData.fcr !== undefined) {
         // First save this session: ensure FCR is logged at least once
-        if (currentData.fcr !== undefined) {
-          const today = new Date().toISOString().split("T")[0];
-          const now = new Date();
-          const currentTime = `${now.getHours().toString().padStart(2, "0")}:${now
-            .getMinutes()
-            .toString()
-            .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-          const { error: changesError } = await supabase.from("daily_changes").insert([
-            {
-              performance_id: savedPerformanceId,
-              change_date: today,
-              change_time: currentTime,
-              user_id: user.id,
-              field_name: "fcr",
-              old_value: null,
-              new_value: currentData.fcr,
-              change_amount: null,
-            },
-          ]);
-          if (changesError) console.error("Error saving initial FCR change:", changesError);
+        const today = new Date().toISOString().split("T")[0];
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+        addDailyChange(currentPerformanceId, userId, {
+          fieldName: "fcr",
+          oldValue: 0,
+          newValue: currentData.fcr,
+          changeAmount: currentData.fcr,
+          changeDate: today,
+          changeTime: currentTime,
+        });
+      }
+
+      // Save tickets
+      // Clear existing tickets and re-save
+      if (currentPerformanceId) {
+        // Remove all existing tickets for this month and re-add
+        const existingTickets = getTickets(currentPerformanceId);
+        for (const t of existingTickets) {
+          removeTicket(currentPerformanceId, t.id);
         }
-      }
+        for (const ticket of currentData.tickets) {
+          addTicket(currentPerformanceId, userId, {
+            ticketId: ticket.ticketId,
+            type: ticket.type,
+            channel: ticket.channel,
+            note: ticket.note || "",
+          });
+        }
 
-      // Replace tickets for this month
-      const { error: deleteError } = await supabase
-        .from("tickets")
-        .delete()
-        .eq("performance_id", savedPerformanceId);
-      if (deleteError) throw deleteError;
-
-      if (currentData.tickets.length > 0) {
-        const ticketsToInsert = currentData.tickets.map((ticket) => ({
-          performance_id: savedPerformanceId,
-          ticket_id: ticket.ticketId,
-          type: ticket.type,
-          channel: ticket.channel,
-          note: ticket.note,
-          user_id: user.id,
-        }));
-
-        const { error: ticketsError } = await supabase.from("tickets").insert(ticketsToInsert);
-        if (ticketsError) throw ticketsError;
-      }
-
-      // Replace Genesys tickets for this month
-      await supabase.from("genesys_tickets").delete().eq("performance_id", savedPerformanceId);
-
-      if (currentGenesysTickets.length > 0) {
-        const genesysTicketsToInsert = currentGenesysTickets.map((ticket) => ({
-          performance_id: savedPerformanceId,
-          ticket_link: ticket.ticketLink,
-          rating_score: ticket.ratingScore,
-          customer_phone: ticket.customerPhone,
-          ticket_date: ticket.ticketDate,
-          channel: ticket.channel || "Phone",
-          ticket_id: ticket.ticketId || "",
-          note: ticket.note || "",
-          user_id: user.id,
-        }));
-
-        const { error: genesysError } = await supabase.from("genesys_tickets").insert(genesysTicketsToInsert);
-        if (genesysError) throw genesysError;
+        // Save Genesys tickets
+        const existingGenesys = getGenesysTickets(currentPerformanceId);
+        for (const t of existingGenesys) {
+          removeGenesysTicket(currentPerformanceId, t.id);
+        }
+        for (const ticket of currentGenesysTickets) {
+          addGenesysTicket(currentPerformanceId, userId, {
+            ticketLink: ticket.ticketLink,
+            ratingScore: ticket.ratingScore,
+            customerPhone: ticket.customerPhone || "",
+            ticketDate: ticket.ticketDate,
+            ticketId: ticket.ticketId || "",
+            channel: ticket.channel || "Phone",
+            note: ticket.note || "",
+          });
+        }
       }
 
       // Snapshot after successful save
@@ -1221,7 +800,6 @@ const Index = () => {
           tickets: updatedTickets,
         };
       });
-
     },
     []
   );
@@ -1236,8 +814,8 @@ const Index = () => {
   }, []);
 
   const handleSmartGoodRating = useCallback((
-    channel: 'phone' | 'chat' | 'email', 
-    isGenesys: boolean, 
+    channel: 'phone' | 'chat' | 'email',
+    isGenesys: boolean,
     genesysData?: { ticketLink: string; ratingScore: number; customerPhone: string }
   ) => {
     if (isGenesys && genesysData) {
@@ -1310,7 +888,7 @@ const Index = () => {
       bad: ticket.type === 'DSAT' ? prev.bad + 1 : prev.bad,
       karmaBad: ticket.type === 'Karma' ? prev.karmaBad + 1 : prev.karmaBad,
     }));
-    
+
     setTodayStats(prev => ({ ...prev, bad: prev.bad + 1 }));
     toast.error(`${ticket.type} ticket added - target affected ⚠️`);
     setTimeout(() => {
@@ -1319,7 +897,6 @@ const Index = () => {
       }
     }, 0);
   }, []);
-
 
   useEffect(() => {
     try {
@@ -1368,6 +945,7 @@ const Index = () => {
       window.removeEventListener("storage", storageHandler);
     };
   }, [openSmartDialog]);
+
   // Calculate daily target impact
   const dailyTargetImpact = useMemo(() => {
     const today = new Date();
@@ -1375,24 +953,24 @@ const Index = () => {
     const remainingDays = lastDay - today.getDate();
     const weekendDays = Math.ceil(remainingDays / 7) * 2;
     const workDays = Math.max(1, remainingDays - weekendDays);
-    
+
     const totalKarma = totalGood + totalBad + data.karmaBad;
     const neededFor95 = Math.max(0, Math.ceil((0.95 * totalKarma - totalGood) / 0.05));
     const currentTarget = Math.ceil(neededFor95 / workDays);
-    
+
     const newTotalKarma = totalKarma + 1;
     const newNeeded = Math.max(0, Math.ceil((0.95 * newTotalKarma - totalGood) / 0.05));
     const newTarget = Math.ceil(newNeeded / workDays);
-    
+
     return {
       newTarget,
       compensation: newTarget - currentTarget,
     };
   }, [selectedMonth, selectedYear, totalGood, totalBad, data.karmaBad]);
 
-  const totalSurveys = useMemo(() => leaderboardData ? leaderboardData.csat_count + leaderboardData.dsat_count : totalGood + totalBad, [leaderboardData, totalGood, totalBad]);
-  const csat = useMemo(() => leaderboardData ? leaderboardData.csat_percentage : (totalSurveys > 0 ? (totalGood / totalSurveys) * 100 : 0), [leaderboardData, totalGood, totalSurveys]);
-  
+  const totalSurveys = useMemo(() => totalGood + totalBad, [totalGood, totalBad]);
+  const csat = useMemo(() => totalSurveys > 0 ? (totalGood / totalSurveys) * 100 : 0, [totalGood, totalSurveys]);
+
   const totalKarmaBase = useMemo(() => totalGood + totalBad + data.karmaBad, [totalGood, totalBad, data.karmaBad]);
   const karma = useMemo(() => totalKarmaBase > 0 ? (totalGood / totalKarmaBase) * 100 : 0, [totalGood, totalKarmaBase]);
 
@@ -1413,7 +991,7 @@ const Index = () => {
   const badByChannel = useMemo(() => {
     const counts = { phone: 0, chat: 0, email: 0 };
     const dsatTickets = data.tickets.filter(t => t.type === "DSAT");
-    
+
     if (dsatTickets.length === 0) {
       // If no DSAT tickets exist, attribute all to Phone (default workflow)
       counts.phone = totalBad;
@@ -1441,7 +1019,7 @@ const Index = () => {
     },
     { phone: 0, chat: 0, email: 0 }
   ), [data.tickets]);
- 
+
   // KPI score state (from PhoneBonusKPI calculation)
   const [kpiScore, setKpiScore] = useState(0);
 
@@ -1482,10 +1060,10 @@ const Index = () => {
     return () => window.removeEventListener("ktb_next_event", handler as EventListener);
   }, []);
 
-  // Daily target for summary card (88% level)
+  // Daily target for summary card (75% level)
   const dailyTargetForSummary = useMemo(() => {
     const totalKB = totalGood + totalBad + data.karmaBad;
-    const needed = Math.max(0, Math.ceil((0.88 * totalKB - totalGood) / (1 - 0.88)));
+    const needed = Math.max(0, Math.ceil((0.75 * totalKB - totalGood) / (1 - 0.75)));
     const days = remainingWorkingDays ?? 1;
     return needed / Math.max(1, days);
   }, [totalGood, totalBad, data.karmaBad, remainingWorkingDays]);
@@ -1511,6 +1089,12 @@ const Index = () => {
     }
   }, [kpiScore, checkKPIAlerts]);
 
+  // Format floor average display for a metric
+  const formatFloorAvg = (metric: FloorAvgDisplay | null, suffix: string = "%") => {
+    if (!metric) return null;
+    const sign = metric.diff >= 0 ? "+" : "";
+    return `Your: ${metric.yourValue.toFixed(1)}${suffix} | Floor Avg: ${metric.floorAvg.toFixed(1)}${suffix} | Diff: ${sign}${metric.diff.toFixed(1)}${suffix}`;
+  };
 
   const exportToCSV = () => {
     const monthName = new Date(selectedYear, selectedMonth).toLocaleString("en-US", { month: "long" });
@@ -1544,7 +1128,6 @@ const Index = () => {
     a.click();
     toast.success("CSV exported successfully!");
   };
-
 
   return (
     <div className="relative">
@@ -1590,7 +1173,7 @@ const Index = () => {
 
           {activeTab === "overview" && (
           <div className="space-y-4 animate-fade-in focus-visible:outline-none">
-            
+
             {/* Today's Shift & OT Focus */}
             <TodayShiftCard />
 
@@ -1609,20 +1192,19 @@ const Index = () => {
                 title="KPI"
                 percentage={kpiScore}
                 subtitle="Phone Bonus 🎯"
+                floorInfo={floorAverages ? formatFloorAvg({ yourValue: kpiScore, floorAvg: 75, diff: kpiScore - 75, status: kpiScore >= 75 ? "above" : "below" }) : undefined}
               />
               <PercentageDisplay
                 title="CSAT"
                 percentage={csat}
-                subtitle={leaderboardData 
-                  ? `${leaderboardData.csat_count} / ${leaderboardData.csat_count + leaderboardData.dsat_count}`
-                  : `${totalGood} / ${totalSurveys}`
-                }
+                subtitle={`${totalGood} / ${totalSurveys}`}
+                floorInfo={floorAverages ? formatFloorAvg(floorAverages.csat) : undefined}
               />
             </div>
 
             {/* Streaks & Milestones */}
             <StreaksMilestones
-              userId={user.id}
+              userId={userId}
               selectedMonth={selectedMonth}
               selectedYear={selectedYear}
               todayGood={todayStats.good}
@@ -1631,7 +1213,7 @@ const Index = () => {
 
             {/* Daily KPI Target */}
             <DailyKPITarget
-              userId={user.id}
+              userId={userId}
               selectedMonth={selectedMonth}
               selectedYear={selectedYear}
               csatPercentage={csat}
@@ -1643,28 +1225,20 @@ const Index = () => {
 
             {/* Manual Productivity Override */}
             <ManualProductivityCard
-              userId={user.id}
+              userId={userId}
               selectedMonth={selectedMonth}
               selectedYear={selectedYear}
             />
 
             {/* Smart Tips */}
             <SmartKPITips
-              userId={user.id}
+              userId={userId}
               selectedMonth={selectedMonth}
               selectedYear={selectedYear}
               kpiScore={kpiScore}
               csatPercentage={csat}
               totalGood={totalGood}
               totalSurveys={totalSurveys}
-              remainingWorkDays={remainingWorkingDays}
-            />
-
-            {/* Calls & Surveys Hub - Merged Productivity KPI + Survey Conversion */}
-            <CallsSurveyHub
-              userId={user.id}
-              selectedMonth={selectedMonth}
-              selectedYear={selectedYear}
               remainingWorkDays={remainingWorkingDays}
             />
 
@@ -1677,7 +1251,7 @@ const Index = () => {
               <div className="grid grid-cols-3 gap-2">
                 <MetricCard
                   title="Good"
-                  value={leaderboardData ? leaderboardData.csat_count : totalGood}
+                  value={totalGood}
                   onIncrement={() => updateMetric("good", true)}
                   onDecrement={() => updateMetric("good", false)}
                   color="success"
@@ -1686,7 +1260,7 @@ const Index = () => {
                 />
                 <MetricCard
                   title="DSAT"
-                  value={leaderboardData ? leaderboardData.dsat_count : totalBad}
+                  value={totalBad}
                   onIncrement={() => updateMetric("bad", true)}
                   onDecrement={() => updateMetric("bad", false)}
                   color="destructive"
@@ -1729,7 +1303,7 @@ const Index = () => {
              {/* Genesys & Tickets Section */}
             <div className="space-y-6">
               <h2 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">🎫 Tickets Management</h2>
-              
+
               {/* Genesys Tickets Form */}
               <GenesysTicketForm
                 tickets={genesysTickets}
@@ -1743,7 +1317,7 @@ const Index = () => {
                 onTicketsChange={(tickets) => setData((prev) => ({ ...prev, tickets }))}
               />
             </div>
-             
+
              {/* Show Hold Tickets here too if needed, but keeping in Overview for priority */}
              <div className="mt-8">
                <h3 className="text-xl font-semibold mb-4">Hold Tickets Management</h3>
@@ -1763,6 +1337,7 @@ const Index = () => {
                 title="CSAT"
                 percentage={csat}
                 subtitle={`${totalGood} / ${totalSurveys}`}
+                floorInfo={floorAverages ? formatFloorAvg(floorAverages.csat) : undefined}
               />
               <PercentageDisplay
                 title="Karma"
@@ -1784,7 +1359,7 @@ const Index = () => {
                   previousValue={previousMonthData?.fcr}
                 />
                 <PhoneBonusKPI
-                  userId={user.id}
+                  userId={userId}
                   selectedMonth={selectedMonth}
                   selectedYear={selectedYear}
                   csatPercentage={csat}

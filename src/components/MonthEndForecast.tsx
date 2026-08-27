@@ -2,8 +2,8 @@ import { Card } from "@/components/ui/card";
 import { Target, Calendar, AlertTriangle, CheckCircle, Brain, Zap, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { useMemo, useEffect, useState } from "react";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { listMonthData, getDailyChanges } from "@/lib/store";
 
 interface MonthEndForecastProps {
   currentGood: number;
@@ -42,40 +42,37 @@ export const MonthEndForecast = ({
   selectedYear,
 }: MonthEndForecastProps) => {
   const { user } = useAuth();
+  const userId = user?.id || "local";
   const [historicalData, setHistoricalData] = useState<HistoricalMonth[]>([]);
 
-  // Fetch last 6 months of historical data
   useEffect(() => {
     if (!user) return;
-    const fetchHistory = async () => {
-      const months: { year: number; month: number }[] = [];
+    try {
+      const allMonths = listMonthData(userId);
+      const months: HistoricalMonth[] = [];
       for (let i = 1; i <= 6; i++) {
         let m = selectedMonth - i;
         let y = selectedYear;
         while (m < 0) { m += 12; y -= 1; }
-        months.push({ year: y, month: m });
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('performance_data')
-          .select('year, month, good, bad, karma_bad, genesys_good, genesys_bad, fcr')
-          .eq('user_id', user.id)
-          .order('year', { ascending: true })
-          .order('month', { ascending: true });
-
-        if (!error && data) {
-          const filtered = data.filter((d: any) =>
-            months.some(m => m.year === d.year && m.month === d.month)
-          ) as HistoricalMonth[];
-          setHistoricalData(filtered);
+        const found = allMonths.find(d => d.year === y && d.month === m);
+        if (found) {
+          months.push({
+            year: found.year,
+            month: found.month,
+            good: found.good,
+            bad: found.bad,
+            karma_bad: found.karmaBad,
+            genesys_good: found.genesysGood,
+            genesys_bad: found.genesysBad,
+            fcr: found.fcr,
+          });
         }
-      } catch (e) {
-        console.error('Error fetching historical data:', e);
       }
-    };
-    fetchHistory();
-  }, [user, selectedMonth, selectedYear]);
+      setHistoricalData(months);
+    } catch (e) {
+      console.error('Error fetching historical data:', e);
+    }
+  }, [user, userId, selectedMonth, selectedYear]);
 
   const forecast = useMemo(() => {
     const today = new Date();
@@ -84,19 +81,18 @@ export const MonthEndForecast = ({
     if (!isCurrentMonth) {
       const totalGood = currentGood;
       const totalBad = currentBad;
-      const totalKarma = totalGood + totalBad + karmaBad;
       const csat = (totalGood + totalBad) > 0 ? (totalGood / (totalGood + totalBad)) * 100 : 0;
+      const totalKarma = totalGood + totalBad + karmaBad;
       const karma = totalKarma > 0 ? (totalGood / totalKarma) * 100 : 0;
       return { isPastMonth: true, actualCsat: csat, actualKarma: karma };
     }
 
-    // --- Daily averages from current month changes ---
     const dayStats: Record<string, { good: number; bad: number }> = {};
     dailyChanges.forEach((change: any) => {
-      const isGood = change.field_name === 'good' || change.field_name === 'genesys_good';
-      const isBad = change.field_name === 'bad' || change.field_name === 'genesys_bad' || change.field_name === 'karma_bad';
-      const amount = Math.max(0, change.change_amount);
-      const dateKey = change.change_date;
+      const isGood = change.fieldName === "good" || change.fieldName === "genesysGood" || change.field_name === "good" || change.field_name === "genesys_good";
+      const isBad = change.fieldName === "bad" || change.fieldName === "genesysBad" || change.fieldName === "karmaBad" || change.field_name === "bad" || change.field_name === "genesys_bad" || change.field_name === "karma_bad";
+      const amount = Math.max(0, change.changeAmount || change.change_amount || 0);
+      const dateKey = change.changeDate || change.change_date || "";
       if (!dayStats[dateKey]) dayStats[dateKey] = { good: 0, bad: 0 };
       if (isGood) dayStats[dateKey].good += amount;
       if (isBad) dayStats[dateKey].bad += amount;
@@ -108,7 +104,6 @@ export const MonthEndForecast = ({
     const avgDailyGood = daysWithData > 0 ? totalDailyGood / daysWithData : 0;
     const avgDailyBad = daysWithData > 0 ? totalDailyBad / daysWithData : 0;
 
-    // --- Historical pattern analysis ---
     const historicalKarmas = historicalData.map(h => {
       const tg = h.good + h.genesys_good;
       const tb = h.bad + h.genesys_bad;
@@ -116,7 +111,6 @@ export const MonthEndForecast = ({
       return { karma: total > 0 ? (tg / total) * 100 : 0, csat: (tg + tb) > 0 ? (tg / (tg + tb)) * 100 : 0, good: tg, bad: tb + h.karma_bad };
     });
 
-    // Trend detection: are we improving or declining?
     let trendDirection: 'improving' | 'declining' | 'stable' = 'stable';
     let trendStrength = 0;
     if (historicalKarmas.length >= 2) {
@@ -127,12 +121,10 @@ export const MonthEndForecast = ({
       else if (avgDiff < -1.5) { trendDirection = 'declining'; trendStrength = Math.min(Math.abs(avgDiff), 10); }
     }
 
-    // Historical average daily good (assume ~20 work days per month)
     const histAvgDailyGood = historicalData.length > 0
       ? historicalData.reduce((sum, h) => sum + (h.good + h.genesys_good), 0) / (historicalData.length * 20)
       : 0;
 
-    // Weighted forecast: blend current pace with historical pattern
     let weightedAvgGood = avgDailyGood;
     let weightedAvgBad = avgDailyBad;
 
@@ -144,12 +136,8 @@ export const MonthEndForecast = ({
       weightedAvgBad = avgDailyBad * currentWeight + histDailyBad * histWeight;
     }
 
-    // Apply trend adjustment
-    if (trendDirection === 'improving') {
-      weightedAvgGood *= (1 + trendStrength * 0.01);
-    } else if (trendDirection === 'declining') {
-      weightedAvgBad *= (1 + trendStrength * 0.01);
-    }
+    if (trendDirection === 'improving') weightedAvgGood *= (1 + trendStrength * 0.01);
+    else if (trendDirection === 'declining') weightedAvgBad *= (1 + trendStrength * 0.01);
 
     const remaining = remainingWorkDays ?? 0;
     const projectedGood = currentGood + Math.round(weightedAvgGood * remaining);
@@ -166,7 +154,6 @@ export const MonthEndForecast = ({
     const currentCsat = currentTotal > 0 ? (currentGood / currentTotal) * 100 : 0;
     const currentKarma = currentKarmaTotal > 0 ? (currentGood / currentKarmaTotal) * 100 : 0;
 
-    // Best/worst historical months
     let bestMonth: { karma: number; label: string } | null = null;
     let worstMonth: { karma: number; label: string } | null = null;
     if (historicalKarmas.length > 0) {
@@ -178,17 +165,14 @@ export const MonthEndForecast = ({
       });
     }
 
-    // Historical average karma
     const histAvgKarma = historicalKarmas.length > 0
       ? historicalKarmas.reduce((sum, h) => sum + h.karma, 0) / historicalKarmas.length
       : null;
 
-    // Pace comparison vs historical
     const paceVsHistory = histAvgDailyGood > 0
       ? ((avgDailyGood - histAvgDailyGood) / histAvgDailyGood) * 100
       : null;
 
-    // Target analysis
     const targets = [88, 90, 95];
     const neededForTargets = targets.map(target => {
       const neededGood = Math.ceil((target / 100) * projectedKarmaTotal);
@@ -204,32 +188,20 @@ export const MonthEndForecast = ({
       };
     });
 
-    // Smart insights
     const insights: { icon: 'up' | 'down' | 'brain' | 'zap'; text: string; type: 'success' | 'warning' | 'info' }[] = [];
 
-    if (trendDirection === 'improving') {
-      insights.push({ icon: 'up', text: `Your performance has been improving over the last ${historicalData.length} months`, type: 'success' });
-    } else if (trendDirection === 'declining') {
-      insights.push({ icon: 'down', text: `Your performance is gradually declining — focus on quality`, type: 'warning' });
-    }
+    if (trendDirection === 'improving') insights.push({ icon: 'up', text: `Your performance has been improving over the last ${historicalData.length} months`, type: 'success' });
+    else if (trendDirection === 'declining') insights.push({ icon: 'down', text: `Your performance is gradually declining — focus on quality`, type: 'warning' });
 
     if (paceVsHistory !== null) {
-      if (paceVsHistory > 15) {
-        insights.push({ icon: 'zap', text: `Current pace is ${Math.round(paceVsHistory)}% above your historical average 🔥`, type: 'success' });
-      } else if (paceVsHistory < -15) {
-        insights.push({ icon: 'brain', text: `Pace is ${Math.round(Math.abs(paceVsHistory))}% below your average — need to pick it up`, type: 'warning' });
-      }
+      if (paceVsHistory > 15) insights.push({ icon: 'zap', text: `Current pace is ${Math.round(paceVsHistory)}% above your historical average 🔥`, type: 'success' });
+      else if (paceVsHistory < -15) insights.push({ icon: 'brain', text: `Pace is ${Math.round(Math.abs(paceVsHistory))}% below your average — need to pick it up`, type: 'warning' });
     }
 
-    if (histAvgKarma !== null && forecastKarma > histAvgKarma + 2) {
-      insights.push({ icon: 'up', text: `On track to beat your historical Karma avg (${histAvgKarma.toFixed(1)}%)`, type: 'success' });
-    } else if (histAvgKarma !== null && forecastKarma < histAvgKarma - 2) {
-      insights.push({ icon: 'down', text: `Forecast below your historical avg (${histAvgKarma.toFixed(1)}%) — still time to improve`, type: 'warning' });
-    }
+    if (histAvgKarma !== null && forecastKarma > histAvgKarma + 2) insights.push({ icon: 'up', text: `On track to beat your historical Karma avg (${histAvgKarma.toFixed(1)}%)`, type: 'success' });
+    else if (histAvgKarma !== null && forecastKarma < histAvgKarma - 2) insights.push({ icon: 'down', text: `Forecast below your historical avg (${histAvgKarma.toFixed(1)}%) — still time to improve`, type: 'warning' });
 
-    if (bestMonth && forecastKarma > bestMonth.karma) {
-      insights.push({ icon: 'zap', text: `Could be your best month ever! Previous best: ${bestMonth.label} (${bestMonth.karma.toFixed(1)}%)`, type: 'success' });
-    }
+    if (bestMonth && forecastKarma > bestMonth.karma) insights.push({ icon: 'zap', text: `Could be your best month ever! Previous best: ${bestMonth.label} (${bestMonth.karma.toFixed(1)}%)`, type: 'success' });
 
     let confidence: 'low' | 'medium' | 'high' = 'low';
     if (daysWithData >= 10 && historicalData.length >= 3) confidence = 'high';
@@ -283,11 +255,7 @@ export const MonthEndForecast = ({
   }
 
   const getConfidenceBadge = () => {
-    const colors = {
-      high: 'bg-success/15 text-success border-success/30',
-      medium: 'bg-warning/15 text-warning border-warning/30',
-      low: 'bg-muted text-muted-foreground border-border',
-    };
+    const colors = { high: 'bg-success/15 text-success border-success/30', medium: 'bg-warning/15 text-warning border-warning/30', low: 'bg-muted text-muted-foreground border-border' };
     const labels = { high: 'HIGH', medium: 'MED', low: 'LOW' };
     return (
       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${colors[forecast.confidence!]}`}>
@@ -296,10 +264,8 @@ export const MonthEndForecast = ({
     );
   };
 
-  const TrendIcon = forecast.trendDirection === 'improving' ? ArrowUpRight
-    : forecast.trendDirection === 'declining' ? ArrowDownRight : Minus;
-  const trendColor = forecast.trendDirection === 'improving' ? 'text-success'
-    : forecast.trendDirection === 'declining' ? 'text-destructive' : 'text-muted-foreground';
+  const TrendIcon = forecast.trendDirection === 'improving' ? ArrowUpRight : forecast.trendDirection === 'declining' ? ArrowDownRight : Minus;
+  const trendColor = forecast.trendDirection === 'improving' ? 'text-success' : forecast.trendDirection === 'declining' ? 'text-destructive' : 'text-muted-foreground';
 
   const InsightIcon = ({ type }: { type: 'up' | 'down' | 'brain' | 'zap' }) => {
     switch (type) {
@@ -312,7 +278,6 @@ export const MonthEndForecast = ({
 
   return (
     <Card className="p-6 border-border">
-      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           <div className="p-1.5 rounded-lg bg-primary/10">
@@ -320,9 +285,7 @@ export const MonthEndForecast = ({
           </div>
           <div>
             <h3 className="text-base font-semibold text-foreground">Smart Forecast</h3>
-            <p className="text-[11px] text-muted-foreground">
-              Based on {forecast.historicalMonths} months history + current pace
-            </p>
+            <p className="text-[11px] text-muted-foreground">Based on {forecast.historicalMonths} months history + current pace</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -331,7 +294,6 @@ export const MonthEndForecast = ({
         </div>
       </div>
 
-      {/* Current vs Forecast - Compact */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="p-3 bg-muted rounded-xl">
           <p className="text-[11px] text-muted-foreground mb-1">Now</p>
@@ -361,7 +323,6 @@ export const MonthEndForecast = ({
         </div>
       </div>
 
-      {/* Quick Stats Row */}
       <div className="grid grid-cols-4 gap-2 mb-5">
         <div className="text-center p-2 bg-muted rounded-lg">
           <p className="text-[10px] text-muted-foreground">Days Left</p>
@@ -383,7 +344,6 @@ export const MonthEndForecast = ({
         </div>
       </div>
 
-      {/* Historical Context */}
       {forecast.histAvgKarma !== null && (
         <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl mb-5 border border-border/50">
           <div className="flex-1 space-y-1.5">
@@ -391,10 +351,7 @@ export const MonthEndForecast = ({
               <span className="text-[11px] text-muted-foreground">Historical Avg Karma</span>
               <span className="text-xs font-semibold text-foreground">{forecast.histAvgKarma.toFixed(1)}%</span>
             </div>
-            <Progress
-              value={Math.min(100, (forecast.forecastKarma ?? 0) / Math.max(forecast.histAvgKarma, 1) * 100)}
-              className="h-1.5"
-            />
+            <Progress value={Math.min(100, (forecast.forecastKarma ?? 0) / Math.max(forecast.histAvgKarma, 1) * 100)} className="h-1.5" />
             <div className="flex justify-between text-[10px] text-muted-foreground">
               {forecast.worstMonth && <span>Worst: {forecast.worstMonth.label} ({forecast.worstMonth.karma.toFixed(0)}%)</span>}
               {forecast.bestMonth && <span>Best: {forecast.bestMonth.label} ({forecast.bestMonth.karma.toFixed(0)}%)</span>}
@@ -403,19 +360,15 @@ export const MonthEndForecast = ({
         </div>
       )}
 
-      {/* Smart Insights */}
       {forecast.insights && forecast.insights.length > 0 && (
         <div className="space-y-2 mb-5">
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Pattern Insights</p>
           {forecast.insights.map((insight, i) => (
-            <div
-              key={i}
-              className={`flex items-start gap-2 p-2.5 rounded-lg text-xs ${
-                insight.type === 'success' ? 'bg-success/10 text-success' :
-                insight.type === 'warning' ? 'bg-warning/10 text-warning' :
-                'bg-muted text-muted-foreground'
-              }`}
-            >
+            <div key={i} className={`flex items-start gap-2 p-2.5 rounded-lg text-xs ${
+              insight.type === 'success' ? 'bg-success/10 text-success' :
+              insight.type === 'warning' ? 'bg-warning/10 text-warning' :
+              'bg-muted text-muted-foreground'
+            }`}>
               <InsightIcon type={insight.icon} />
               <span className="leading-relaxed">{insight.text}</span>
             </div>
@@ -423,7 +376,6 @@ export const MonthEndForecast = ({
         </div>
       )}
 
-      {/* Target Achievement */}
       <div className="space-y-2">
         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Target Forecast</p>
         {forecast.neededForTargets?.map((targetInfo) => (
@@ -443,14 +395,9 @@ export const MonthEndForecast = ({
                 </span>
               )}
             </div>
-            <Progress
-              value={Math.min(100, (forecast.forecastKarma ?? 0) / targetInfo.target * 100)}
-              className="h-1.5"
-            />
+            <Progress value={Math.min(100, (forecast.forecastKarma ?? 0) / targetInfo.target * 100)} className="h-1.5" />
             {!targetInfo.willMeet && targetInfo.additionalNeeded > 0 && (
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                ~{targetInfo.perDay} extra good/day needed
-              </p>
+              <p className="text-[11px] text-muted-foreground mt-1.5">~{targetInfo.perDay} extra good/day needed</p>
             )}
           </div>
         ))}

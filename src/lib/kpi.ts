@@ -1,72 +1,88 @@
-import { supabase } from "@/integrations/supabase/client";
+/**
+ * Green Tab — KPI & Payroll Calculations (Local Store)
+ *
+ * Replaces Supabase queries with localStorage-based lookups.
+ * Uses local store functions for performance_data, daily_shifts, etc.
+ */
 
-export async function fetchMonthlyPayrollData(userId: string, year: number, month: number): Promise<{ 
-  kpiScore: number, 
-  workDays: number, 
-  siteDays: number, 
-  casualCount: number, 
-  sickCount: number, 
-  annualCount: number, 
+import { getMonthData, getDailyChanges } from "@/lib/store";
+
+const PREFIX = "gt_shifts_";
+
+function readShifts(userId: string, year: number, month: number): any[] {
+  try {
+    const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${lastDay}`;
+    // Shifts are stored with key prefix gt_shifts_{userId}_{date}
+    const shifts: any[] = [];
+    for (let d = 1; d <= lastDay; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const key = `${PREFIX}${userId}_${dateStr}`;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        try {
+          shifts.push(JSON.parse(raw));
+        } catch {}
+      }
+    }
+    return shifts;
+  } catch { return []; }
+}
+
+export async function fetchMonthlyPayrollData(userId: string, year: number, month: number): Promise<{
+  kpiScore: number,
+  workDays: number,
+  siteDays: number,
+  casualCount: number,
+  sickCount: number,
+  annualCount: number,
   noShowCount: number,
   otDay: number,
   otNight: number,
   otSpecial: number
 }> {
-  const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${lastDay}`;
+  const perfData = getMonthData(userId, year, month);
+  const shiftsData = readShifts(userId, year, month);
 
-  const [callsRes, perfRes, shiftsRes] = await Promise.all([
-    supabase
-      .from('daily_survey_calls')
-      .select('total_calls')
-      .eq('user_id', userId)
-      .gte('call_date', startDate)
-      .lte('call_date', endDate),
-    supabase
-      .from('performance_data')
-      .select('good, bad, genesys_good, genesys_bad, manual_productivity')
-      .eq('user_id', userId)
-      .eq('year', year)
-      .eq('month', month),
-    supabase
-      .from('daily_shifts')
-      .select('absence_type, is_off_day, is_site_day, shift_start, ot_hours_day, ot_hours_night, ot_hours_special')
-      .eq('user_id', userId)
-      .gte('shift_date', startDate)
-      .lte('shift_date', endDate)
-  ]);
+  // Calculate auto productivity from daily changes
+  const changes = getDailyChanges(perfData.id);
+  let totalCalls = 0;
+  const validDays = new Set<string>();
+  changes.forEach(c => {
+    if (c.fieldName === "good" || c.fieldName === "genesysGood" ||
+        c.fieldName === "bad" || c.fieldName === "genesysBad") {
+      totalCalls += Math.abs(c.changeAmount);
+      validDays.add(c.changeDate);
+    }
+  });
+  const daysWithCalls = validDays.size;
+  const avg = daysWithCalls > 0 ? totalCalls / daysWithCalls : 0;
+  let autoProdScore = avg >= 30 ? 100 : avg >= 28 ? 75 : avg >= 26 ? 50 : 0;
 
-  const validDays = (callsRes.data || []).filter(r => (r.total_calls || 0) > 0);
-  const totalCalls = validDays.reduce((s, r) => s + (r.total_calls || 0), 0);
-  const avg = validDays.length > 0 ? totalCalls / validDays.length : 0;
-  const autoProdScore = avg >= 30 ? 100 : avg >= 28 ? 75 : avg >= 26 ? 50 : 0;
-
-  const perfData = perfRes.data?.[0];
+  const pData: any = perfData;
   let csatScore = 100;
   let prodScore = autoProdScore;
 
-  if (perfData) {
-    const pData = perfData as any;
-    if (pData.manual_productivity != null) {
-      prodScore = Math.max(0, Math.min(100, Number(pData.manual_productivity)));
-    }
-    const totalGood = (pData.good || 0) + (pData.genesys_good || 0);
-    const totalBad = (pData.bad || 0) + (pData.genesys_bad || 0);
-    const totalSamples = totalGood + totalBad;
-    if (totalSamples > 0) {
-      const csatPct = (totalGood / totalSamples) * 100;
-      csatScore = csatPct >= 93 ? 100 : csatPct >= 90 ? 75 : csatPct >= 87 ? 50 : 0;
-    }
+  // Override with manual productivity if set
+  if (pData.manualProductivity != null) {
+    prodScore = Math.max(0, Math.min(100, Number(pData.manualProductivity)));
   }
 
-  const shiftsData = (shiftsRes.data as any) || [];
-  
+  // CSAT score from good/bad
+  const totalGood = (perfData.good || 0) + (perfData.genesysGood || 0);
+  const totalBad = (perfData.bad || 0) + (perfData.genesysBad || 0);
+  const totalSamples = totalGood + totalBad;
+  if (totalSamples > 0) {
+    const csatPct = (totalGood / totalSamples) * 100;
+    csatScore = csatPct >= 93 ? 100 : csatPct >= 90 ? 75 : csatPct >= 87 ? 50 : 0;
+  }
+
+  // Absence counts from shifts
   let casualCount = 0;
   let sickCount = 0;
   let annualCount = 0;
   let noShowCount = 0;
-
   let workDays = 0;
   let siteDays = 0;
   let otDay = 0;
@@ -89,11 +105,20 @@ export async function fetchMonthlyPayrollData(userId: string, year: number, mont
     otSpecial += Number(s.ot_hours_special || 0);
   }
 
-  // ALL 4 of these absence types impact the KPI
   const totalAbsence = casualCount + sickCount + annualCount + noShowCount;
   const gate = totalAbsence <= 1 ? 100 : totalAbsence === 2 ? 75 : 0;
-
   const finalPercentage = ((prodScore * 0.5 + csatScore * 0.5) * gate) / 100;
 
-  return { kpiScore: finalPercentage, workDays, siteDays, casualCount, sickCount, annualCount, noShowCount, otDay, otNight, otSpecial };
+  return {
+    kpiScore: finalPercentage,
+    workDays,
+    siteDays,
+    casualCount,
+    sickCount,
+    annualCount,
+    noShowCount,
+    otDay,
+    otNight,
+    otSpecial,
+  };
 }

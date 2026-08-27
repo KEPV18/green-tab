@@ -6,8 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { User, Session } from "@supabase/supabase-js";
+import { signUp, signIn, getSession } from "@/lib/store";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { z } from "zod";
 
@@ -17,49 +16,29 @@ const usernameSchema = z.string().min(3, "Username must be at least 3 characters
 
 const Auth = () => {
   const navigate = useNavigate();
-  const [, setUser] = useState<User | null>(null);
-  const [, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  
+
   // Login form
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  
+
   // Signup form
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [signupUsername, setSignupUsername] = useState("");
 
+  // Check for existing session on mount — redirect if already logged in
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          navigate("/");
-        }
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        navigate("/");
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    const session = getSession();
+    if (session) {
+      navigate("/", { replace: true });
+    }
   }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     try {
       emailSchema.parse(loginEmail);
       passwordSchema.parse(loginPassword);
@@ -69,29 +48,26 @@ const Auth = () => {
         return;
       }
     }
-    
+
     setIsLoading(true);
-    
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
-      });
-      
-      if (error) {
-        if (error.message.includes("Invalid login credentials")) {
+      const result = signIn(loginEmail, loginPassword);
+
+      if (result.error) {
+        if (result.error === "User not found") {
           toast.error("Invalid login credentials");
-        } else if (error.message.includes("Email not confirmed")) {
-          toast.error("Please confirm your email first");
+        } else if (result.error === "Invalid password") {
+          toast.error("Invalid login credentials");
         } else {
-          toast.error(error.message);
+          toast.error(result.error);
         }
         return;
       }
-      
+
       toast.success("Logged in successfully! 🎉");
-    } catch (error) {
-      console.error("Login error:", error);
+      navigate("/");
+    } catch {
       toast.error("An error occurred while logging in");
     } finally {
       setIsLoading(false);
@@ -100,7 +76,7 @@ const Auth = () => {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     try {
       emailSchema.parse(signupEmail);
       passwordSchema.parse(signupPassword);
@@ -111,35 +87,24 @@ const Auth = () => {
         return;
       }
     }
-    
+
     setIsLoading(true);
-    
+
     try {
-      const redirectUrl = `${window.location.origin}/`;
-      
-      const { error } = await supabase.auth.signUp({
-        email: signupEmail,
-        password: signupPassword,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            username: signupUsername,
-          },
-        },
-      });
-      
-      if (error) {
-        if (error.message.includes("User already registered")) {
+      const result = signUp(signupEmail, signupPassword, signupUsername);
+
+      if (result.error) {
+        if (result.error === "User already exists") {
           toast.error("This email is already registered");
         } else {
-          toast.error(error.message);
+          toast.error(result.error);
         }
         return;
       }
-      
+
       toast.success("Account created successfully! 🎉");
-    } catch (error) {
-      console.error("Signup error:", error);
+      navigate("/");
+    } catch {
       toast.error("An error occurred while creating the account");
     } finally {
       setIsLoading(false);
@@ -168,7 +133,7 @@ const Auth = () => {
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
@@ -218,7 +183,7 @@ const Auth = () => {
                 </Button>
               </form>
             </TabsContent>
-            
+
             <TabsContent value="signup">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
