@@ -7,9 +7,37 @@
  * The Python fetch script upserts data into Supabase daily.
  * The frontend reads directly from Supabase — no Vercel redeployment needed.
  *
- * Chat AHT = "Average basket time" from Sheet19.
- * Genesys AHT = "Genesys Inbound AHT + ACW" (voice/call, always null currently).
- * These are DIFFERENT metrics and must NEVER be conflated.
+ * MAPPING DOCUMENTATION (Source → DB → Frontend):
+ * ─────────────────────────────────────────────────────────────────
+ * Google Sheet "CSAT %" (Tab 0 Col 2)          → csat              → CSAT
+ * Google Sheet "Productivity 8-hrs" (Sheet19)   → productivity      → Productivity
+ * Google Sheet "FCR, %" (Tab 0 Col 8)           → fcr               → FCR
+ * Google Sheet "Average basket time" (Sheet19)   → chat_aht         → ABT (Average Basket Time)
+ * Google Sheet "Closed tickets, %" (Tab 0 Col 8) → closed_tickets_pct → Close Rate ⚠️ NOT "Closed After Resolution"
+ * Google Sheet "Average handling time" (Sheet19) → chat_handling_time → Avg Handling Time
+ * Google Sheet "Adherence, %" (Sheet19)          → adherence         → Adherence
+ * Google Sheet "IRT 2 replier" (Sheet19)         → irt_replier       → IRT
+ * Google Sheet "Closed after resolution, %"      → closed_after_resolution → Closed After Resolution (SEPARATE from Close Rate)
+ * Google Sheet "Escalation rate %" (Sheet19)     → escalation_rate   → Escalation Rate
+ * Google Sheet "Deescalation rate %" (Tab 0/19)  → deescalation_rate → De-escalation Rate
+ * Google Sheet "Occupancy daily, %" (Sheet19)    → occupancy         → Occupancy
+ * Google Sheet "Concurrency" (Sheet19)            → concurrency       → Concurrency
+ * Google Sheet "Average group basket time" (Sheet19) → avg_group_basket_time → Avg Group Basket Time
+ * Google Sheet "Shrinkage - agent - unplanned" (Sheet19) → shrinkage  → Shrinkage
+ * Google Sheet "Utilization daily, %" (Sheet19)   → utilization       → Utilization
+ * Google Sheet "Genesys Inbound AHT + ACW"       → genesys_aht       → Genesys AHT (voice, NOT chat)
+ *
+ * ⚠️ CRITICAL: Close Rate = "Closed tickets, %" = closed_tickets_pct
+ *    NOT "Closed After Resolution" = closed_after_resolution
+ *    These are DIFFERENT metrics.
+ *
+ * TEAM FILTERING:
+ * ─────────────────────────────────────────────────────────────────
+ * The Chat Team ranking EXCLUDES:
+ * - Abdallah Abdallah (abdallah.abdallah@tabby.ai) — PHONE only
+ * - Mohamed Mohamed (mohamed.mohamed.27@tabby.ai) — CONSULTATION team
+ * - Ahmed Elkhodary (ahmed.radwan@tabby.ai) — TERMINATED
+ * - Abdullah Riad (abdullah.mohamed@tabby.ai) — TERMINATED
  */
 
 import { createClient, Client } from "@supabase/supabase-js";
@@ -20,18 +48,34 @@ import { readJSON, writeJSON } from "./store";
 export interface TeamMemberRow {
   name: string;
   email: string;
-  csat: number | null;
-  productivity: number | null;
-  fcr: number | null;
-  aht: number | null;          // Chat AHT = Average basket time
-  chatAht: number | null;      // Same as aht (for compatibility)
-  genesysAht: number | null;   // Voice/call AHT (always null currently)
   bambooId: string | null;
+  // Primary ranking metrics
+  productivity: number | null;     // Productivity 8-hrs
+  csat: number | null;             // CSAT % (percentage, NOT raw count)
+  aht: number | null;              // ABT = Average Basket Time (lower is better)
+  closeRate: number | null;         // Close Rate = "Closed tickets, %" (NOT "Closed After Resolution")
+  // Additional metrics
+  fcr: number | null;              // FCR %
+  chatAht: number | null;          // Same as aht (for compatibility)
+  chatHandlingTime: number | null; // Average Handling Time
+  genesysAht: number | null;       // Voice/call AHT (always null currently)
+  adherence: number | null;        // Adherence %
+  irtReplier: number | null;       // IRT 2 Replier
+  closedAfterResolution: number | null; // Closed After Resolution % (SEPARATE from Close Rate)
+  escalationRate: number | null;    // Escalation Rate %
+  deescalationRate: number | null;  // De-escalation Rate %
+  occupancy: number | null;        // Occupancy %
+  concurrency: number | null;      // Concurrency
+  avgGroupBasketTime: number | null; // Average Group Basket Time
+  shrinkage: number | null;        // Shrinkage %
+  utilization: number | null;      // Utilization %
+  // Computed
   overallScore: number | null;
-  floorAvgCsat: number;
+  // Floor averages
   floorAvgProductivity: number;
-  floorAvgFcr: number;
+  floorAvgCsat: number;
   floorAvgAht: number;
+  floorAvgCloseRate: number;
 }
 
 export interface TeamData {
@@ -39,11 +83,40 @@ export interface TeamData {
   fetchedAt: string;
   monthLabel: string;
   floorAvg: {
-    csat: number;
     productivity: number;
-    fcr: number;
+    csat: number;
     aht: number;
+    closeRate: number;
+    fcr: number;
   };
+}
+
+// ─── Team Filtering ────────────────────────────────────────────────────────────
+
+/**
+ * Emails excluded from the Chat Team ranking.
+ * These agents are either PHONE-only, CONSULTATION team, or TERMINATED.
+ * They remain in the database for historical purposes but are hidden from the active ranking.
+ */
+const EXCLUDED_FROM_CHAT_TEAM: Record<string, string> = {
+  "abdallah.abdallah@tabby.ai": "PHONE team only",
+  "mohamed.mohamed.27@tabby.ai": "CONSULTATION team",
+  "ahmed.radwan@tabby.ai": "TERMINATED",
+  "abdullah.mohamed@tabby.ai": "TERMINATED",
+};
+
+/**
+ * Filter a list of team members to show only active Chat team agents.
+ */
+export function filterChatTeam(members: TeamMemberRow[]): TeamMemberRow[] {
+  return members.filter((m) => !EXCLUDED_FROM_CHAT_TEAM[m.email]);
+}
+
+/**
+ * Get the exclusion reason for an agent, or null if not excluded.
+ */
+export function getExclusionReason(email: string): string | null {
+  return EXCLUDED_FROM_CHAT_TEAM[email] ?? null;
 }
 
 // ─── Supabase Client ──────────────────────────────────────────────────────────
@@ -107,15 +180,64 @@ interface CachedTeamData {
   fetchedAt: number;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Ranking Formula ──────────────────────────────────────────────────────────
 
-function computeOverallScore(
-  csat: number | null,
+/**
+ * Compute overall ranking score for a Chat team member.
+ *
+ * Primary metrics (in priority order):
+ * 1. Productivity (higher is better) — weight 35%
+ * 2. CSAT (higher is better) — weight 30%
+ * 3. Close Rate / "Closed tickets, %" (higher is better) — weight 20%
+ * 4. ABT / Average Basket Time (LOWER is better) — weight 15%
+ *
+ * Each metric is normalized against the floor average (0.5 = at average).
+ * For ABT, the normalization inverts because lower is better.
+ * Missing metrics contribute 0 to the score.
+ */
+export function computeOverallScore(
   productivity: number | null,
-  fcr: number | null
+  csat: number | null,
+  closeRate: number | null,
+  aht: number | null,
+  floorAvgProductivity: number,
+  floorAvgCsat: number,
+  floorAvgCloseRate: number,
+  floorAvgAht: number,
 ): number | null {
-  const scores = [csat, productivity, fcr].filter((v): v is number => v !== null);
-  return scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null;
+  const scores: number[] = [];
+  const weights: number[] = [];
+
+  // Productivity (35%) — higher is better
+  if (productivity !== null && floorAvgProductivity > 0) {
+    scores.push(Math.min(productivity / floorAvgProductivity, 2)); // Cap at 2x
+    weights.push(0.35);
+  }
+
+  // CSAT (30%) — higher is better
+  if (csat !== null && floorAvgCsat > 0) {
+    scores.push(Math.min(csat / floorAvgCsat, 2));
+    weights.push(0.30);
+  }
+
+  // Close Rate (20%) — higher is better
+  if (closeRate !== null && floorAvgCloseRate > 0) {
+    scores.push(Math.min(closeRate / floorAvgCloseRate, 2));
+    weights.push(0.20);
+  }
+
+  // ABT (15%) — LOWER is better, so we invert
+  if (aht !== null && floorAvgAht > 0 && aht > 0) {
+    scores.push(Math.min(floorAvgAht / aht, 2)); // Inverted: lower AHT = higher score
+    weights.push(0.15);
+  }
+
+  if (scores.length === 0) return null;
+
+  // Weighted average
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const weightedScore = scores.reduce((sum, s, i) => sum + s * weights[i], 0);
+  return Math.round((weightedScore / totalWeight) * 100) / 100;
 }
 
 function computeFloorAvg(values: (number | null)[]): number {
@@ -124,22 +246,39 @@ function computeFloorAvg(values: (number | null)[]): number {
 }
 
 function supabaseRowToMemberRow(row: SupabaseTeamMetric): TeamMemberRow {
-  const aht = row.chat_aht; // Chat AHT = Average basket time
+  const aht = row.chat_aht; // ABT = Average Basket Time (NOT Genesys AHT)
+  const closeRate = row.closed_tickets_pct; // ⚠️ "Closed tickets, %" — NOT "Closed After Resolution"
+
   return {
     name: row.agent_name || row.agent_email.split("@")[0],
     email: row.agent_email,
-    csat: row.csat,
-    productivity: row.productivity,
-    fcr: row.fcr,
-    aht: aht,
-    chatAht: aht,                // Same as aht (for compatibility)
-    genesysAht: row.genesys_aht, // Voice/call AHT (always null currently)
     bambooId: row.bamboo_id,
-    overallScore: computeOverallScore(row.csat, row.productivity, row.fcr),
-    floorAvgCsat: 0,  // Will be computed after all members are loaded
+    // Primary ranking metrics
+    productivity: row.productivity,
+    csat: row.csat,
+    aht: aht,
+    closeRate: closeRate,
+    // Additional metrics
+    fcr: row.fcr,
+    chatAht: aht,                          // Same as aht (for compatibility)
+    chatHandlingTime: row.chat_handling_time,
+    genesysAht: row.genesys_aht,
+    adherence: row.adherence,
+    irtReplier: row.irt_replier,
+    closedAfterResolution: row.closed_after_resolution, // SEPARATE from Close Rate
+    escalationRate: row.escalation_rate,
+    deescalationRate: row.deescalation_rate,
+    occupancy: row.occupancy,
+    concurrency: row.concurrency,
+    avgGroupBasketTime: row.avg_group_basket_time,
+    shrinkage: row.shrinkage,
+    utilization: row.utilization,
+    // Computed (will be filled after floor averages)
+    overallScore: null,
     floorAvgProductivity: 0,
-    floorAvgFcr: 0,
+    floorAvgCsat: 0,
     floorAvgAht: 0,
+    floorAvgCloseRate: 0,
   };
 }
 
@@ -170,53 +309,8 @@ export async function fetchTeamData(): Promise<TeamData> {
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from("team_metrics")
-        .select("*")
-        .order("agent_name");
-
-      if (!error && data && data.length > 0) {
-        const members = (data as SupabaseTeamMetric[]).map(supabaseRowToMemberRow);
-
-        // Compute floor averages
-        const floorAvgCsat = computeFloorAvg(members.map((m) => m.csat));
-        const floorAvgProductivity = computeFloorAvg(members.map((m) => m.productivity));
-        const floorAvgFcr = computeFloorAvg(members.map((m) => m.fcr));
-        const floorAvgAht = computeFloorAvg(members.map((m) => m.aht));
-
-        // Assign floor averages to each member
-        for (const m of members) {
-          m.floorAvgCsat = floorAvgCsat;
-          m.floorAvgProductivity = floorAvgProductivity;
-          m.floorAvgFcr = floorAvgFcr;
-          m.floorAvgAht = floorAvgAht;
-        }
-
-        // Sort by overall score descending
-        members.sort((a, b) => (b.overallScore || 0) - (a.overallScore || 0));
-
-        // Determine month label from data
-        const monthLabel = data[0]?.month || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-
-        const teamData: TeamData = {
-          members,
-          fetchedAt: new Date().toISOString(),
-          monthLabel,
-          floorAvg: {
-            csat: floorAvgCsat,
-            productivity: floorAvgProductivity,
-            fcr: floorAvgFcr,
-            aht: floorAvgAht,
-          },
-        };
-
-        // Cache it
-        try {
-          writeJSON(CACHE_KEY, { data: teamData, fetchedAt: Date.now() });
-        } catch {}
-
-        return teamData;
-      }
+      const data = await fetchFromSupabase(supabase);
+      if (data) return data;
     } catch (err) {
       console.warn("[googleSheets] Supabase fetch failed:", err);
     }
@@ -254,7 +348,7 @@ export async function fetchTeamData(): Promise<TeamData> {
     members: [],
     fetchedAt: new Date().toISOString(),
     monthLabel: "",
-    floorAvg: { csat: 0, productivity: 0, fcr: 0, aht: 0 },
+    floorAvg: { productivity: 0, csat: 0, aht: 0, closeRate: 0, fcr: 0 },
   };
 }
 
@@ -271,42 +365,8 @@ export async function refreshTeamData(): Promise<TeamData> {
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from("team_metrics")
-        .select("*")
-        .order("agent_name");
-
-      if (!error && data && data.length > 0) {
-        const members = (data as SupabaseTeamMetric[]).map(supabaseRowToMemberRow);
-        const floorAvgCsat = computeFloorAvg(members.map((m) => m.csat));
-        const floorAvgProductivity = computeFloorAvg(members.map((m) => m.productivity));
-        const floorAvgFcr = computeFloorAvg(members.map((m) => m.fcr));
-        const floorAvgAht = computeFloorAvg(members.map((m) => m.aht));
-
-        for (const m of members) {
-          m.floorAvgCsat = floorAvgCsat;
-          m.floorAvgProductivity = floorAvgProductivity;
-          m.floorAvgFcr = floorAvgFcr;
-          m.floorAvgAht = floorAvgAht;
-        }
-
-        members.sort((a, b) => (b.overallScore || 0) - (a.overallScore || 0));
-
-        const monthLabel = (data as SupabaseTeamMetric[])[0]?.month || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-
-        const teamData: TeamData = {
-          members,
-          fetchedAt: new Date().toISOString(),
-          monthLabel,
-          floorAvg: { csat: floorAvgCsat, productivity: floorAvgProductivity, fcr: floorAvgFcr, aht: floorAvgAht },
-        };
-
-        try {
-          writeJSON(CACHE_KEY, { data: teamData, fetchedAt: Date.now() });
-        } catch {}
-
-        return teamData;
-      }
+      const data = await fetchFromSupabase(supabase);
+      if (data) return data;
     } catch (err) {
       console.warn("[googleSheets] Supabase refresh failed:", err);
     }
@@ -316,12 +376,69 @@ export async function refreshTeamData(): Promise<TeamData> {
 }
 
 /**
+ * Fetch and process team data from Supabase.
+ */
+async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
+  const { data, error } = await client
+    .from("team_metrics")
+    .select("*")
+    .order("agent_name");
+
+  if (error || !data || data.length === 0) return null;
+
+  const members = (data as SupabaseTeamMetric[]).map(supabaseRowToMemberRow);
+
+  // Compute floor averages (over ALL members, including excluded ones for context)
+  const allMembers = members;
+  const floorAvgProductivity = computeFloorAvg(allMembers.map((m) => m.productivity));
+  const floorAvgCsat = computeFloorAvg(allMembers.map((m) => m.csat));
+  const floorAvgAht = computeFloorAvg(allMembers.map((m) => m.aht));
+  const floorAvgCloseRate = computeFloorAvg(allMembers.map((m) => m.closeRate));
+  const floorAvgFcr = computeFloorAvg(allMembers.map((m) => m.fcr));
+
+  // Assign floor averages and compute overall scores for ALL members
+  for (const m of allMembers) {
+    m.floorAvgProductivity = floorAvgProductivity;
+    m.floorAvgCsat = floorAvgCsat;
+    m.floorAvgAht = floorAvgAht;
+    m.floorAvgCloseRate = floorAvgCloseRate;
+    m.overallScore = computeOverallScore(
+      m.productivity, m.csat, m.closeRate, m.aht,
+      floorAvgProductivity, floorAvgCsat, floorAvgCloseRate, floorAvgAht,
+    );
+  }
+
+  // Determine month label from data
+  const monthLabel = (data as SupabaseTeamMetric[])[0]?.month || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const teamData: TeamData = {
+    members: allMembers,
+    fetchedAt: new Date().toISOString(),
+    monthLabel,
+    floorAvg: {
+      productivity: floorAvgProductivity,
+      csat: floorAvgCsat,
+      aht: floorAvgAht,
+      closeRate: floorAvgCloseRate,
+      fcr: floorAvgFcr,
+    },
+  };
+
+  // Cache it
+  try {
+    writeJSON(CACHE_KEY, { data: teamData, fetchedAt: Date.now() });
+  } catch {}
+
+  return teamData;
+}
+
+/**
  * Find the current user's row in the team data by matching email or display name.
  */
 export function findMyRow(
   teamData: TeamData,
   userEmail: string,
-  userDisplayName: string | null
+  userDisplayName: string | null,
 ): TeamMemberRow | null {
   const emailLower = userEmail.toLowerCase();
   const nameLower = (userDisplayName || "").toLowerCase();
