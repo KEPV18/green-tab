@@ -2,29 +2,36 @@
 """
 Green Tab — Google Sheet Team Data Fetcher
 
+IMPORTANT: This script handles a work Google account.
+- NEVER attempt automatic login
+- NEVER retry failed logins
+- Only open browser ONCE for manual login
+- After login, save profile for headless reuse
+
 Usage:
-  1. First time (interactive login):
+  1. FIRST TIME ONLY (interactive login):
+     cd /mnt/ahmed/Projects/green-tab
      python3 scripts/fetch_team_data.py --login
      
-     This opens Chromium. Sign in to Google, navigate to the sheet,
-     then press Enter in the terminal to extract data.
-  
-  2. Subsequent runs (uses saved cookies):
+     → A browser opens. YOU sign in manually.
+     → After signing in and seeing the sheet, press ENTER.
+     → The profile is saved. Browser closes.
+     
+  2. DAILY (headless, uses saved profile):
      python3 scripts/fetch_team_data.py
      
-  3. Test mode (print data without saving):
+     → No browser window. Uses saved cookies.
+     → If cookies expired, it FAILS silently (does NOT retry login).
+     
+  3. Test mode:
      python3 scripts/fetch_team_data.py --test
-  
-  4. Use a local CSV file:
-     python3 scripts/fetch_team_data.py --csv path/to/file.csv
 
-The script saves cookies to ~/.config/green-tab/cookies.json after login.
-Subsequent runs reuse these cookies to access the sheet without login.
+CRON (daily at 8 AM):
+  0 8 * * * cd /mnt/ahmed/Projects/green-tab && python3 scripts/fetch_team_data.py >> /tmp/green-tab-fetch.log 2>&1
 """
 
 import argparse
 import json
-import os
 import sys
 import time
 import csv
@@ -40,10 +47,10 @@ CSV_EXPORT_URL = "https://docs.google.com/spreadsheets/d/1O3WHz1gphUvoBLdQlJ9sT5
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "public"
 OUTPUT_FILE = OUTPUT_DIR / "team-data.json"
 
-COOKIES_DIR = Path.home() / ".config" / "green-tab"
-COOKIES_FILE = COOKIES_DIR / "cookies.json"
+PROFILE_DIR = Path.home() / ".config" / "green-tab" / "browser-profile"
+LOCK_FILE = Path.home() / ".config" / "green-tab" / ".login-lock"
 
-# ── Helpers ─────────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────────
 
 def parse_num(val: str) -> float | None:
     if not val or val.strip() in ("", "-", "N/A", "—", "–"):
@@ -104,7 +111,6 @@ def extract_team_data(rows: list[list[str]]) -> dict:
     data1_end = table2_header if table2_header != -1 else len(rows)
     
     csat_vals, prod_vals, fcr_vals = [], [], []
-    
     skip_names = {"average", "total", "floor", "floor average", ""}
     
     for i in range(data1_start, data1_end):
@@ -169,75 +175,83 @@ def extract_team_data(rows: list[list[str]]) -> dict:
     return {"members": members, "fetchedAt": datetime.utcnow().isoformat() + "Z", "monthLabel": month_label, "floorAvg": floor_avg}
 
 
-def fetch_with_playwright_login():
-    """Open browser for user to log in, then extract CSV."""
+def interactive_login():
+    """
+    ONE-TIME ONLY: Open browser for user to manually sign in.
+    NEVER called automatically. NEVER retries.
+    """
     from playwright.sync_api import sync_playwright
     
-    COOKIES_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    print("=" * 60)
+    print("⚠️  IMPORTANT: This is a ONE-TIME login.")
+    print("⚠️  Sign in with your work account MANUALLY.")
+    print("⚠️  Do NOT let the browser auto-fill if it shows the wrong account.")
+    print("⚠️  After signing in, wait for the sheet to fully load.")
+    print("⚠️  Then press ENTER here to save the session.")
+    print("=" * 60)
+    print()
     
     with sync_playwright() as p:
-        # Use a persistent context to save cookies
+        # Launch with persistent profile — this saves ALL cookies/session
         context = p.chromium.launch_persistent_context(
-            user_data_dir=str(COOKIES_DIR / "browser-profile"),
+            user_data_dir=str(PROFILE_DIR),
             headless=False,
             channel="chromium",
-            args=["--disable-blink-features=AutomationControlled", "--no-first-run"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--disable-extensions",
+                "--no-default-browser-check",
+            ],
         )
         
         page = context.pages[0] if context.pages else context.new_page()
         
-        # Load existing cookies if available
-        if COOKIES_FILE.exists():
-            print("[fetch] Loading saved cookies...")
-            try:
-                cookies = json.loads(COOKIES_FILE.read_text())
-                context.add_cookies(cookies)
-            except Exception as e:
-                print(f"[fetch] Warning: Could not load cookies: {e}")
-        
         # Navigate to the sheet
-        print("[fetch] Opening Google Sheet...")
-        print("[fetch] If prompted to log in, sign in with your work account.")
-        page.goto(SHEET_URL, wait_until="networkidle", timeout=60000)
-        time.sleep(3)
+        print("[fetch] Opening Google Sheet in browser...")
+        print("[fetch] Please sign in with your WORK account if prompted.")
+        page.goto(SHEET_URL, wait_until="domcontentloaded", timeout=120000)
         
-        # Check if we need to log in
+        # Check if login is needed
         current_url = page.url
-        if "accounts.google.com" in current_url:
-            print("\n" + "=" * 60)
-            print("[fetch] ⚠️  LOGIN REQUIRED!")
-            print("[fetch] Please sign in to Google in the browser window.")
-            print("[fetch] After signing in, the sheet should load automatically.")
-            print("[fetch] Press ENTER here when you can see the sheet data.")
-            print("=" * 60 + "\n")
-            input(">>> Press ENTER when the sheet is visible in the browser... ")
-            page.goto(SHEET_URL, wait_until="networkidle", timeout=60000)
-            time.sleep(5)
+        needs_login = "accounts.google.com" in current_url
         
-        # Save cookies for future use
-        print("[fetch] Saving cookies for future runs...")
-        cookies = context.cookies()
-        COOKIES_FILE.write_text(json.dumps(cookies, indent=2))
+        if needs_login:
+            print()
+            print("🔐 Google login page detected.")
+            print("   Sign in with your WORK account.")
+            print("   After successful login, the sheet will load.")
+            print()
+        else:
+            print("[fetch] Sheet loaded! Checking data...")
         
-        # Try CSV export
-        print("[fetch] Attempting CSV export...")
+        print()
+        print(">>> Press ENTER when you can see the sheet data in the browser <<<")
+        
+        # Wait for user confirmation (blocking)
+        input()
+        
+        # Try to export as CSV to verify access
+        print("[fetch] Verifying sheet access...")
         csv_page = context.new_page()
-        csv_page.goto(CSV_EXPORT_URL, wait_until="networkidle", timeout=30000)
+        csv_page.goto(CSV_EXPORT_URL, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(3)
         csv_text = csv_page.inner_text("body")
         csv_page.close()
         
-        # Check if we got actual CSV data
         if "accounts.google.com" in csv_text or "Sign in" in csv_text[:200]:
-            print("[fetch] CSV export failed (still login required).")
-            print("[fetch] Trying cell extraction from rendered sheet...")
+            print("[fetch] ⚠️  CSV export requires authentication.")
+            print("[fetch] The browser session might not have full access yet.")
+            print("[fetch] Trying cell extraction instead...")
             
-            # Go back to the sheet and extract cells
+            # Extract from the rendered sheet
             page.goto(SHEET_URL, wait_until="networkidle", timeout=60000)
             time.sleep(5)
             
-            # Extract all visible cell text
             cells = page.query_selector_all('[role="gridcell"]')
-            print(f"[fetch] Found {len(cells)} grid cells")
+            print(f"[fetch] Found {len(cells)} cells in rendered sheet")
             
             rows_data = {}
             for cell in cells:
@@ -251,73 +265,108 @@ def fetch_with_playwright_login():
                         rows_data[row_idx] = {}
                     rows_data[row_idx][col_idx] = text
             
-            # Convert to 2D array
             max_col = max(c for row in rows_data.values() for c in row.keys()) if rows_data else 0
             result_rows = []
             for row_idx in sorted(rows_data.keys()):
-                row = []
-                for col_idx in range(1, max_col + 1):
-                    row.append(rows_data[row_idx].get(col_idx, ""))
+                row = [rows_data[row_idx].get(col_idx, "") for col_idx in range(1, max_col + 1)]
                 result_rows.append(row)
             
             context.close()
             
             if not result_rows:
-                print("[fetch] ❌ Failed to extract any data from sheet!")
-                return None
+                print("[fetch] ❌ Could not extract data. Please try again.")
+                sys.exit(1)
             
-            print(f"[fetch] Extracted {len(result_rows)} rows from rendered sheet")
-            return result_rows  # Return raw rows for special processing
+            print(f"[fetch] ✅ Extracted {len(result_rows)} rows from rendered sheet!")
+            team_data = extract_team_data(result_rows)
+            
+        else:
+            # CSV export worked!
+            context.close()
+            rows = parse_csv(csv_text)
+            team_data = extract_team_data(rows)
+            print(f"[fetch] ✅ CSV export successful! Found {len(team_data['members'])} members.")
         
-        context.close()
-        return csv_text
+        # Save the data
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_FILE.write_text(json.dumps(team_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        
+        # Create lock file to indicate successful login
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LOCK_FILE.write_text(json.dumps({
+            "loginAt": datetime.utcnow().isoformat() + "Z",
+            "members": len(team_data["members"]),
+            "monthLabel": team_data.get("monthLabel", ""),
+        }, indent=2))
+        
+        print(f"[fetch] ✅ Saved team data to {OUTPUT_FILE}")
+        print(f"[fetch] ✅ Browser profile saved to {PROFILE_DIR}")
+        print(f"[fetch] ✅ Members: {len(team_data.get('members', []))}")
+        print(f"[fetch] ✅ Month: {team_data.get('monthLabel', 'unknown')}")
+        print(f"[fetch] ✅ Floor Avg: {team_data.get('floorAvg', {})}")
+        print()
+        print("🔒 Browser profile saved. From now on, use:")
+        print("   python3 scripts/fetch_team_data.py")
+        print("   (No browser window will open. Headless mode.)")
+        
+        return team_data
 
 
-def fetch_with_saved_cookies():
-    """Try to fetch CSV using previously saved cookies (no browser window)."""
+def fetch_headless():
+    """
+    Daily fetch using saved profile. 
+    NO login attempts. Fails silently if session expired.
+    """
     from playwright.sync_api import sync_playwright
     
-    if not COOKIES_FILE.exists():
-        return None
+    if not PROFILE_DIR.exists():
+        print("[fetch] ❌ No browser profile found. Run --login first!")
+        sys.exit(1)
     
     with sync_playwright() as p:
+        # Launch headless with the saved profile
         context = p.chromium.launch_persistent_context(
-            user_data_dir=str(COOKIES_DIR / "browser-profile"),
-            headless=True,  # No visible browser
+            user_data_dir=str(PROFILE_DIR),
+            headless=True,  # No browser window
             channel="chromium",
-            args=["--disable-blink-features=AutomationControlled", "--no-first-run"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--disable-extensions",
+                "--no-default-browser-check",
+            ],
         )
-        
-        # Load saved cookies
-        try:
-            cookies = json.loads(COOKIES_FILE.read_text())
-            context.add_cookies(cookies)
-        except:
-            context.close()
-            return None
         
         # Try CSV export
         page = context.new_page()
-        page.goto(CSV_EXPORT_URL, wait_until="networkidle", timeout=30000)
-        csv_text = page.inner_text("body")
+        page.goto(CSV_EXPORT_URL, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(3)
         
-        # Check if we got actual data
-        if "accounts.google.com" in csv_text or "Sign in" in csv_text[:200] or "error" in csv_text[:100].lower():
+        csv_text = ""
+        try:
+            csv_text = page.inner_text("body")
+        except Exception as e:
+            print(f"[fetch] Error reading page: {e}")
             context.close()
             return None
         
-        # Save updated cookies
-        updated_cookies = context.cookies()
-        COOKIES_FILE.write_text(json.dumps(updated_cookies, indent=2))
+        # Check if session expired (redirected to login)
+        if "accounts.google.com" in page.url or "Sign in" in csv_text[:200]:
+            print("[fetch] ⚠️  Session expired. Run --login again to re-authenticate.")
+            print("[fetch] ⚠️  NOT attempting automatic login (work account protection).")
+            context.close()
+            return None
         
         context.close()
-        return csv_text
+        
+        rows = parse_csv(csv_text)
+        return extract_team_data(rows)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch team data from Google Sheet")
+    parser.add_argument("--login", action="store_true", help="ONE-TIME: Open browser for manual Google sign-in")
     parser.add_argument("--test", action="store_true", help="Test mode: print data without saving")
-    parser.add_argument("--login", action="store_true", help="Interactive login: open browser for Google sign-in")
     parser.add_argument("--csv", type=str, help="Use a local CSV file instead of fetching")
     args = parser.parse_args()
     
@@ -329,48 +378,33 @@ def main():
         csv_text = csv_path.read_text(encoding="utf-8")
         rows = parse_csv(csv_text)
         team_data = extract_team_data(rows)
+    
     elif args.login:
-        # Interactive login with browser
-        result = fetch_with_playwright_login()
-        if result is None:
-            print("[fetch] ❌ Failed to fetch data!")
-            sys.exit(1)
-        elif isinstance(result, list) and result and isinstance(result[0], list):
-            # Raw rows from cell extraction
-            team_data = extract_team_data(result)
-        else:
-            rows = parse_csv(result)
-            team_data = extract_team_data(rows)
+        # INTERACTIVE LOGIN — user must be at the keyboard
+        team_data = interactive_login()
+    
     else:
-        # Try headless fetch with saved cookies first
-        print("[fetch] Trying headless fetch with saved cookies...")
-        csv_text = fetch_with_saved_cookies()
-        
-        if csv_text:
-            print("[fetch] ✅ Successfully fetched data with saved cookies!")
-            rows = parse_csv(csv_text)
-            team_data = extract_team_data(rows)
-        else:
-            print("[fetch] Headless fetch failed. Run with --login to authenticate first.")
-            print("[fetch] Usage: python3 scripts/fetch_team_data.py --login")
+        # HEADLESS — uses saved profile, NO login attempts
+        team_data = fetch_headless()
+        if team_data is None:
+            print("[fetch] Failed. Run with --login to re-authenticate.")
             sys.exit(1)
     
     # Save
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    if args.test:
+    if args.test and not args.login:
         print(json.dumps(team_data, indent=2, ensure_ascii=False))
-    else:
+    elif not args.login:
         OUTPUT_FILE.write_text(json.dumps(team_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"[fetch] ✅ Saved team data to {OUTPUT_FILE}")
+        print(f"[fetch] ✅ Saved to {OUTPUT_FILE}")
         print(f"[fetch] Members: {len(team_data.get('members', []))}")
         print(f"[fetch] Month: {team_data.get('monthLabel', 'unknown')}")
         print(f"[fetch] Floor Avg: {team_data.get('floorAvg', {})}")
-    
-    # Backup
-    backup = OUTPUT_DIR / f"team-data-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
-    backup.write_text(json.dumps(team_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"[fetch] Backup: {backup}")
+        
+        # Backup
+        backup = OUTPUT_DIR / f"team-data-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        backup.write_text(json.dumps(team_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":
