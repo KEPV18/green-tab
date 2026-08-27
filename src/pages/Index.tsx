@@ -210,6 +210,7 @@ const Index = () => {
   // Sheet metrics from team data
   const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
   const [teamData, setTeamData] = useState<TeamData | null>(null);
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
 
   // Available months for selection (last 12 months)
   const availableMonthsForComparison = useMemo(() => {
@@ -293,8 +294,23 @@ const Index = () => {
     fetchTeamData().then((td) => {
       setTeamData(td);
       if (td && td.members.length > 0) {
-        const row = findMyRow(td, user.email, user.displayName);
+        // Try automatic match first
+        let row = findMyRow(td, user.email, user.displayName);
+        
+        // If no auto match, try saved selection from localStorage
+        if (!row) {
+          try {
+            const savedEmail = localStorage.getItem('gt_selected_team_email');
+            if (savedEmail) {
+              row = td.members.find(m => m.email.toLowerCase() === savedEmail.toLowerCase()) || null;
+            }
+          } catch {}
+        }
+        
         setMySheetRow(row);
+        if (row) {
+          try { localStorage.setItem('gt_selected_team_email', row.email); } catch {}
+        }
       }
     }).catch(() => {
       // Silently fail - sheet data is supplementary
@@ -1313,6 +1329,45 @@ const Index = () => {
                     showButtons={false}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Team Profile Picker - show when no auto match */}
+            {teamData && !mySheetRow && (
+              <div className="space-y-2">
+                <h3 className="text-[11px] font-bold text-warning uppercase tracking-wider flex items-center gap-2">
+                  ⚠️ Select Your Team Profile
+                </h3>
+                <p className="text-xs text-muted-foreground">We couldn't auto-match your account to a team profile. Select your name below:</p>
+                <select
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                  value=""
+                  onChange={(e) => {
+                    const selected = teamData.members.find(m => m.email === e.target.value);
+                    if (selected) {
+                      setMySheetRow(selected);
+                      try { localStorage.setItem('gt_selected_team_email', selected.email); } catch {}
+                    }
+                  }}
+                >
+                  <option value="" disabled>Select your name...</option>
+                  {teamData.members.map(m => (
+                    <option key={m.email} value={m.email}>{m.name} ({m.email})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Allow changing team profile */}
+            {mySheetRow && teamData && (
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[10px] text-muted-foreground">Profile: {mySheetRow.name}</span>
+                <button
+                  className="text-[10px] text-primary hover:underline"
+                  onClick={() => { setMySheetRow(null); setShowTeamPicker(true); try { localStorage.removeItem('gt_selected_team_email'); } catch {} }}
+                >
+                  Switch
+                </button>
               </div>
             )}
 
