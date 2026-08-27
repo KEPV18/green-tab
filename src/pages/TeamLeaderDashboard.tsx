@@ -156,7 +156,7 @@ function LeaderboardRow({
           <span className="w-10 text-right" title="FCR">{member.fcr}%</span>
         )}
         {member.aht !== null && (
-          <span className="w-14 text-right" title="AHT">{member.aht}s</span>
+          <span className="w-14 text-right" title="Chat AHT">{member.aht}s</span>
         )}
       </div>
     </div>
@@ -344,7 +344,7 @@ export default function TeamLeaderDashboard() {
                 value={myRow.aht}
                 unit="s"
                 floorAvg={floorAvg.aht}
-                icon={<Clock className="h-4 w-4" />}
+                icon={<MessageSquare className="h-4 w-4" />}
                 higherIsBetter={false}
               />
             </div>
@@ -393,7 +393,7 @@ export default function TeamLeaderDashboard() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-foreground">{floorAvg.aht}s</div>
-              <div className="text-xs text-muted-foreground">AHT</div>
+              <div className="text-xs text-muted-foreground">Chat AHT</div>
             </div>
           </div>
         </CardContent>

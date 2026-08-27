@@ -43,9 +43,11 @@ from typing import Any
 
 SHEET_ID = "1O3WHz1gphUvoBLdQlJ9sT5pWBlgrjASwGFpgO-0qRmw"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
-# gid=87009911 is the "Team Scores" tab — confirmed via tab enumeration
-TEAM_SCORES_GID = "87009911"
-CSV_EXPORT_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={TEAM_SCORES_GID}"
+# PRIMARY: Sheet19 (gid=1066657646) — vertical/metric-per-row format, contains Chat AHT
+# SECONDARY: Team Scores (gid=87009911) — horizontal table format, Genesys AHT is empty
+PRIMARY_GID = "1066657646"
+SECONDARY_GID = "87009911"
+CSV_EXPORT_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={PRIMARY_GID}"
 TARGET_TAB_NAME = "Team Scores"
 
 DEFAULT_PROFILE_DIR = Path.home() / ".config" / "green-tab" / "browser-profile"
@@ -210,7 +212,7 @@ class SheetExtractor:
         try:
             # ── Step 1: Navigate to the sheet ──
             page.goto(
-                f"{SHEET_URL}?gid={TEAM_SCORES_GID}#gid={TEAM_SCORES_GID}",
+                f"{SHEET_URL}?gid={PRIMARY_GID}#gid={PRIMARY_GID}",
                 wait_until="domcontentloaded",
                 timeout=self.timeout_ms,
             )
@@ -241,7 +243,7 @@ class SheetExtractor:
 
             if not tab_found:
                 # Check if we're already on the right tab by URL gid
-                if TEAM_SCORES_GID in page.url:
+                if PRIMARY_GID in page.url:
                     tab_found = True
                     result.details["tab_selection"] = "verified_by_gid"
                     result.tab_verified = True
@@ -429,7 +431,7 @@ class SheetExtractor:
             # Ensure we're on the sheet page
             if "docs.google.com/spreadsheets" not in page.url:
                 page.goto(
-                    f"{SHEET_URL}?gid={TEAM_SCORES_GID}#gid={TEAM_SCORES_GID}",
+                    f"{SHEET_URL}?gid={PRIMARY_GID}#gid={PRIMARY_GID}",
                     wait_until="domcontentloaded",
                     timeout=self.timeout_ms,
                 )
@@ -549,7 +551,7 @@ def interactive_login() -> dict[str, Any] | None:
 
         print("[login] Opening Google Sheet in browser...")
         page.goto(
-            f"{SHEET_URL}?gid={TEAM_SCORES_GID}#gid={TEAM_SCORES_GID}",
+            f"{SHEET_URL}?gid={PRIMARY_GID}#gid={PRIMARY_GID}",
             wait_until="domcontentloaded",
             timeout=120000,
         )

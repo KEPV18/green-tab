@@ -22,3 +22,13 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+.env
+.env.local
+.env.*.local
+SUPABASE_SERVICE_ROLE_KEY
+
+# Server-side secrets (Python scripts)
+scripts/.env.local
+dist/
+supabase/.temp/
+dist/
