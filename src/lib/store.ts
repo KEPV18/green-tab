@@ -14,7 +14,7 @@ function getKey(key: string): string {
   return `${PREFIX}${key}`;
 }
 
-function readJSON<T>(key: string, fallback: T): T {
+export function readJSON<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(getKey(key));
     if (raw === null) return fallback;
@@ -24,7 +24,7 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
-function writeJSON<T>(key: string, value: T): void {
+export function writeJSON<T>(key: string, value: T): void {
   try {
     localStorage.setItem(getKey(key), JSON.stringify(value));
   } catch {
