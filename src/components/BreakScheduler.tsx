@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,7 @@ export const BreakScheduler = ({ performanceId }: BreakSchedulerProps) => {
 
   const startBreak = (type: BreakEvent['type']) => {
     const newBreak: BreakEvent = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       type,
       start: new Date().toISOString(),
       performanceId: performanceId || undefined,

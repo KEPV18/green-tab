@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ThumbsUp, ThumbsDown, AlertTriangle, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -763,7 +764,7 @@ const Index = () => {
         if (field === "bad") {
           if (increment) {
             const newTicket: Ticket = {
-              id: crypto.randomUUID(),
+              id: safeId(),
               ticketId: "",
               type: "DSAT",
               channel: "Phone",
@@ -779,7 +780,7 @@ const Index = () => {
         } else if (field === "karmaBad") {
           if (increment) {
             const newTicket: Ticket = {
-              id: crypto.randomUUID(),
+              id: safeId(),
               ticketId: "",
               type: "Karma",
               channel: "Chat",
@@ -821,7 +822,7 @@ const Index = () => {
     if (isGenesys && genesysData) {
       const isGoodRating = genesysData.ratingScore >= 7 && genesysData.ratingScore <= 9;
       setGenesysTickets(prev => [...prev, {
-        id: crypto.randomUUID(),
+        id: safeId(),
         ticketLink: genesysData.ticketLink,
         ratingScore: genesysData.ratingScore,
         customerPhone: genesysData.customerPhone,
@@ -836,7 +837,7 @@ const Index = () => {
         toast.success('Genesys good rating added! 📞');
       } else {
         setData(prev => ({ ...prev, genesysBad: prev.genesysBad + 1, bad: prev.bad + 1, tickets: [...prev.tickets, {
-          id: crypto.randomUUID(),
+          id: safeId(),
           ticketId: "",
           type: "DSAT",
           channel: "Phone",
@@ -879,7 +880,7 @@ const Index = () => {
     setData(prev => ({
       ...prev,
       tickets: [...prev.tickets, {
-        id: crypto.randomUUID(),
+        id: safeId(),
         ticketId: ticket.ticketId,
         type: ticket.type,
         channel: ticket.channel,
@@ -1125,7 +1126,10 @@ const Index = () => {
     const a = document.createElement("a");
     a.href = url;
     a.download = `performance-${monthName}-${selectedYear}.csv`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
     toast.success("CSV exported successfully!");
   };
 

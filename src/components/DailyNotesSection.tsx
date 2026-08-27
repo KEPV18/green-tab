@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,7 @@ export const DailyNotesSection = ({ performanceId }: DailyNotesSectionProps) => 
   const addNote = () => {
     if (!newNote.trim()) return;
     const note: DailyNote = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       text: newNote.trim(),
       createdAt: new Date().toISOString(),
     };

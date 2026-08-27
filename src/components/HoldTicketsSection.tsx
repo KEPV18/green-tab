@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,7 @@ export const HoldTicketsSection = ({ performanceId }: HoldTicketsSectionProps) =
       return;
     }
     const ticket: HoldTicket = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       ticketLink: newTicket.ticketLink,
       reason: newTicket.reason,
       holdStart: new Date().toISOString(),

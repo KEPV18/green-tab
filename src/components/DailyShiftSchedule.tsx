@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -89,7 +90,7 @@ export const DailyShiftSchedule = ({ userId, selectedMonth, selectedYear }: Dail
       return;
     }
     const shift: Shift = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       date: selectedDate,
       shiftStart: template.label === "Custom" ? (shifts[selectedDate]?.shiftStart || "09:00") : template.start,
       shiftEnd: template.label === "Custom" ? (shifts[selectedDate]?.shiftEnd || "18:00") : template.end,
@@ -106,7 +107,7 @@ export const DailyShiftSchedule = ({ userId, selectedMonth, selectedYear }: Dail
   const markOffDay = (date: string) => {
     const existing = shifts[date];
     const shift: Shift = {
-      id: existing?.id || crypto.randomUUID(),
+      id: existing?.id || safeId(),
       date,
       shiftStart: "",
       shiftEnd: "",

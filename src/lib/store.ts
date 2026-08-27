@@ -25,11 +25,20 @@ function readJSON<T>(key: string, fallback: T): T {
 }
 
 function writeJSON<T>(key: string, value: T): void {
-  localStorage.setItem(getKey(key), JSON.stringify(value));
+  try {
+    localStorage.setItem(getKey(key), JSON.stringify(value));
+  } catch {
+    // localStorage unavailable (insecure context, quota exceeded, etc.)
+    console.warn("localStorage write failed for key:", key);
+  }
 }
 
 function removeItem(key: string): void {
-  localStorage.removeItem(getKey(key));
+  try {
+    localStorage.removeItem(getKey(key));
+  } catch {
+    // localStorage unavailable
+  }
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -184,9 +193,7 @@ const KEYS = {
 } as const;
 
 // ─── ID Generation ──────────────────────────────────────────────────────────────
-function genId(): string {
-  return crypto.randomUUID();
-}
+// genId is defined above (line ~45) with crypto.randomUUID fallback
 
 // ─── Month Data ─────────────────────────────────────────────────────────────────
 
@@ -435,6 +442,16 @@ function simpleHash(input: string): string {
     hash |= 0; // Convert to 32-bit integer
   }
   return hash.toString(36);
+}
+
+/** Generate a unique ID — uses crypto.randomUUID when available, falls back to timestamp+random */
+function genId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    // Fallback for insecure contexts where crypto.randomUUID is unavailable
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
 }
 
 export interface AuthResult {

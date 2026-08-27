@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -74,7 +75,7 @@ export default function WorkSchedule() {
   const addShift = () => {
     if (!newDate) { toast.error("Select a date"); return; }
     const shift: ShiftEntry = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       date: newDate,
       shift_start: newStart,
       shift_end: newEnd,
@@ -95,7 +96,7 @@ export default function WorkSchedule() {
   const markOffDay = (date: string) => {
     const existing = shifts[date];
     const shift: ShiftEntry = {
-      id: existing?.id || crypto.randomUUID(),
+      id: existing?.id || safeId(),
       date,
       shift_start: existing?.shift_start || "",
       shift_end: existing?.shift_end || "",

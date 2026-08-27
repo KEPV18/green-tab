@@ -1,3 +1,4 @@
+import { safeId } from "@/lib/utils";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,7 +60,7 @@ export const GenesysTicketForm = ({
       return;
     }
     
-    onTicketsChange([...tickets, { ...newTicket, id: crypto.randomUUID() }]);
+    onTicketsChange([...tickets, { ...newTicket, id: safeId() }]);
     setNewTicket({
       ticketLink: "",
       ratingScore: 7,

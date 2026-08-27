@@ -71,7 +71,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     localStorage.setItem("ktb_active_tab", tab);
     try { window.dispatchEvent(new CustomEvent("ktb_tab_change", { detail: tab })); } catch {}
     setActiveTab(tab);
-    if (location.pathname !== "/") navigate("/");
+    // Removed: was causing redirect loop on /settings, /work-schedule, etc.
   };
 
   // Swipe navigation for mobile
