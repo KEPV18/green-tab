@@ -263,6 +263,22 @@ Examples:
         backup = output_file.parent / f"team-data-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
         backup.write_text(json.dumps(team_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # ── Upsert to Supabase ──
+    if not args.test:
+        try:
+            sys.path.insert(0, str(SCRIPTS_DIR))
+            from supabase_upsert import upsert_team_data, UpsertError
+            result_upsert = upsert_team_data(team_data)
+            print(f"[fetch] ✅ Upserted {result_upsert['upserted']} rows to Supabase")
+            if result_upsert.get('errors'):
+                for err in result_upsert['errors']:
+                    print(f"[fetch] ⚠️  Upsert warning: {err}")
+        except ImportError:
+            print("[fetch] ⚠️  supabase_upsert not available — skipping Supabase sync")
+        except Exception as upsert_err:
+            print(f"[fetch] ⚠️  Supabase upsert failed: {upsert_err}")
+            print("[fetch] Data was saved locally; Supabase sync will retry next run")
+
     # ── Report ──
     report = build_report(
         start_time,
