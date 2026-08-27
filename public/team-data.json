@@ -1,0 +1,11 @@
+{
+  "members": [],
+  "fetchedAt": "",
+  "monthLabel": "",
+  "floorAvg": {
+    "csat": 0,
+    "productivity": 0,
+    "fcr": 0,
+    "aht": 0
+  }
+}

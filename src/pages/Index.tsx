@@ -1,6 +1,6 @@
 import { safeId } from "@/lib/utils";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ThumbsUp, ThumbsDown, AlertTriangle, Download } from "lucide-react";
+import { ThumbsUp, ThumbsDown, AlertTriangle, Download, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CelebrationAnimation } from "@/components/CelebrationAnimation";
@@ -11,28 +11,28 @@ import { QuickActionsBar } from "@/components/QuickActionsBar";
 import { MetricCard } from "@/components/MetricCard";
 import { PercentageDisplay } from "@/components/PercentageDisplay";
 import { TicketsTable, Ticket } from "@/components/TicketsTable";
-import { ChannelAnalytics } from "@/components/ChannelAnalytics";
+// Removed imports: ChannelAnalytics, MonthComparison, FCRMetric, BestProductiveTime, PhoneBonusKPI, SmartKPITips, StreaksMilestones, DailyKPITarget, ManualProductivityCard, ThreeMonthPerformance
 import { MonthSelector } from "@/components/MonthSelector";
 import { WeeklyProgress } from "@/components/WeeklyProgress";
 import { DailyChangeLog } from "@/components/DailyChangeLog";
-import { MonthComparison } from "@/components/MonthComparison";
+// Removed: MonthComparison
 import { GenesysTicketForm } from "@/components/GenesysTicketForm";
-import { FCRMetric } from "@/components/FCRMetric";
+// Removed: FCRMetric
 import { DailyTarget } from "@/components/DailyTarget";
 import { SmartRatingDialog } from "@/components/SmartRatingDialog";
 import { HoldTicketsSection } from "@/components/HoldTicketsSection";
 import { DailyNotesSection } from "@/components/DailyNotesSection";
 import { BreakScheduler } from "@/components/BreakScheduler";
 import { TodayShiftCard } from "@/components/TodayShiftCard";
-import { BestProductiveTime } from "@/components/BestProductiveTime";
-import { MonthEndForecast } from "@/components/MonthEndForecast";
-import { PhoneBonusKPI } from "@/components/PhoneBonusKPI";
-import { SmartKPITips } from "@/components/SmartKPITips";
-import { StreaksMilestones } from "@/components/StreaksMilestones";
-import { DailyKPITarget } from "@/components/DailyKPITarget";
-import { ManualProductivityCard } from "@/components/ManualProductivityCard";
+// Removed: BestProductiveTime
+// Removed: MonthEndForecast
+// Removed: PhoneBonusKPI
+// Removed: SmartKPITips
+// Removed: StreaksMilestones
+// Removed: DailyKPITarget
+// Removed: ManualProductivityCard
 import { useAuth } from "@/hooks/useAuth";
-import { ThreeMonthPerformance, MonthMetrics } from "@/components/ThreeMonthPerformance";
+// Removed: ThreeMonthPerformance
 import {
   getMonthData,
   updateMonthData,
@@ -1206,79 +1206,33 @@ const Index = () => {
               />
             </div>
 
-            {/* Streaks & Milestones */}
-            <StreaksMilestones
-              userId={userId}
-              selectedMonth={selectedMonth}
-              selectedYear={selectedYear}
-              todayGood={todayStats.good}
-              dailyTarget={dailyTargetForSummary}
-            />
-
-            {/* Daily KPI Target */}
-            <DailyKPITarget
-              userId={userId}
-              selectedMonth={selectedMonth}
-              selectedYear={selectedYear}
-              csatPercentage={csat}
-              totalGood={totalGood}
-              totalSurveys={totalSurveys}
-              remainingWorkDays={remainingWorkingDays}
-              kpiScore={kpiScore}
-            />
-
-            {/* Manual Productivity Override */}
-            <ManualProductivityCard
-              userId={userId}
-              selectedMonth={selectedMonth}
-              selectedYear={selectedYear}
-            />
-
-            {/* Smart Tips */}
-            <SmartKPITips
-              userId={userId}
-              selectedMonth={selectedMonth}
-              selectedYear={selectedYear}
-              kpiScore={kpiScore}
-              csatPercentage={csat}
-              totalGood={totalGood}
-              totalSurveys={totalSurveys}
-              remainingWorkDays={remainingWorkingDays}
-            />
-
-            {/* Monitoring Section: Counters as compact row */}
+            {/* Monitoring Section: Counters as compact row (READ-ONLY from sheet) */}
             <div className="space-y-2">
               <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
-                Monitoring
+                <Lock className="h-3 w-3 text-muted-foreground/50" />
+                Monitoring (from Sheet)
               </h3>
               <div className="grid grid-cols-3 gap-2">
                 <MetricCard
                   title="Good"
                   value={totalGood}
-                  onIncrement={() => updateMetric("good", true)}
-                  onDecrement={() => updateMetric("good", false)}
                   color="success"
                   icon={ThumbsUp}
-                  showButtons={true}
+                  showButtons={false}
                 />
                 <MetricCard
                   title="DSAT"
                   value={totalBad}
-                  onIncrement={() => updateMetric("bad", true)}
-                  onDecrement={() => updateMetric("bad", false)}
                   color="destructive"
                   icon={ThumbsDown}
-                  showButtons={true}
+                  showButtons={false}
                 />
                 <MetricCard
                   title="Karma"
                   value={data.karmaBad}
-                  onIncrement={() => updateMetric("karmaBad", true)}
-                  onDecrement={() => updateMetric("karmaBad", false)}
                   color="warning"
                   icon={AlertTriangle}
-                  showButtons={true}
+                  showButtons={false}
                 />
               </div>
             </div>
@@ -1347,101 +1301,6 @@ const Index = () => {
                 title="Karma"
                 percentage={karma}
                 subtitle={`${totalGood} / ${totalKarmaBase}`}
-              />
-            </div>
-
-            {/* Section: Performance Inputs */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                Performance Inputs
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FCRMetric
-                  value={data.fcr}
-                  onChange={(value) => setData((prev) => ({ ...prev, fcr: value }))}
-                  previousValue={previousMonthData?.fcr}
-                />
-                <PhoneBonusKPI
-                  userId={userId}
-                  selectedMonth={selectedMonth}
-                  selectedYear={selectedYear}
-                  csatPercentage={csat}
-                  totalSurveys={totalSurveys}
-                />
-              </div>
-            </div>
-
-            {/* Section: Trends & Comparison */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                Trends & Comparison
-              </h3>
-              <MonthComparison
-                currentMonth={{
-                  good: data.good,
-                  bad: data.bad,
-                  genesysGood: data.genesysGood,
-                  genesysBad: data.genesysBad,
-                  karmaBad: data.karmaBad,
-                  fcr: data.fcr,
-                }}
-                previousMonth={previousMonthData}
-                currentMonthName={new Date(selectedYear, selectedMonth).toLocaleString("en-US", { month: "short" })}
-                previousMonthName={new Date(selectedYear, selectedMonth - 1).toLocaleString("en-US", { month: "short" })}
-              />
-              <WeeklyProgress
-                selectedMonth={selectedMonth}
-                selectedYear={selectedYear}
-                weeklyData={weeklyData}
-                currentKarma={karma}
-              />
-            </div>
-
-            {/* Section: Forecasts & Insights */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-warning" />
-                Forecasts & Insights
-              </h3>
-              <MonthEndForecast
-                currentGood={totalGood}
-                currentBad={totalBad}
-                karmaBad={data.karmaBad}
-                remainingWorkDays={remainingWorkingDays}
-                previousMonthData={previousMonthData}
-                dailyChanges={monthlyChangeLog}
-                selectedMonth={selectedMonth}
-                selectedYear={selectedYear}
-              />
-              <BestProductiveTime changes={monthlyChangeLog} />
-            </div>
-
-            {/* Section: Channel Breakdown */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
-                Channel Breakdown
-              </h3>
-              <ChannelAnalytics
-                goodRatings={goodByChannelWithGenesys}
-                badRatings={badByChannel}
-                karmaRatings={karmaByChannel}
-              />
-            </div>
-
-            {/* Section: Multi-Month */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                Multi-Month Performance
-              </h3>
-              <ThreeMonthPerformance
-                metrics={threeMonthsMetrics}
-                availableMonths={availableMonthsForComparison}
-                selectedMonths={selectedThreeMonths}
-                onMonthsChange={setSelectedThreeMonths}
               />
             </div>
           </div>
