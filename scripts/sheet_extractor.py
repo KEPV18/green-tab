@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """
-Green Tab — Google Sheet Browser Extractor
+Green Tab — Google Sheet Browser Extractor (v2)
 
-Extracts team data from a restricted Google Sheet using an existing
-authenticated Chromium profile. NO authentication secrets are accessed.
+Extracts data from EXACTLY TWO tabs in the restricted Google Sheet:
+1. "Team Scores" (gid=87009911) → team_metrics
+2. "KSCAT Calc" (gid=758073782) → kscat_data
+
+NO other tabs are used. NO fallbacks to Sheet19, Tab 0, Bamboo ID, etc.
 
 Architecture:
     Start/reuse persistent Chromium profile
         ↓
     Verify existing Google authentication
         ↓
-    Open restricted Google Sheet
+    Download CSV from Team Scores tab
         ↓
-    Explicitly select "Team Scores" tab
+    Download CSV from KSCAT Calc tab
         ↓
-    Verify selected tab
-        ↓
-    Try authenticated CSV download (Priority 1)
-        ↓
-    If CSV fails → clipboard extraction (Priority 2)
-        ↓
-    Return raw TSV/CSV text
+    Return raw CSV text for each source
 
 Usage:
     from sheet_extractor import SheetExtractor, ExtractionResult, interactive_login
@@ -28,7 +25,8 @@ Usage:
     extractor = SheetExtractor(profile_dir="/path/to/profile")
     result = extractor.extract()
     if result.success:
-        print(f"Got {len(result.raw_text)} chars via {result.method}")
+        print(f"Team Scores: {len(result.team_scores_csv)} chars")
+        print(f"KSCAT Calc:  {len(result.kscat_calc_csv)} chars")
 """
 
 import json
@@ -43,12 +41,16 @@ from typing import Any
 
 SHEET_ID = "1O3WHz1gphUvoBLdQlJ9sT5pWBlgrjASwGFpgO-0qRmw"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
-# PRIMARY: Sheet19 (gid=1066657646) — vertical/metric-per-row format, contains Chat AHT
-# SECONDARY: Team Scores (gid=87009911) — horizontal table format, Genesys AHT is empty
-PRIMARY_GID = "1066657646"
-SECONDARY_GID = "87009911"
-CSV_EXPORT_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={PRIMARY_GID}"
-TARGET_TAB_NAME = "Team Scores"
+
+# ONLY TWO VALID DATA SOURCES — everything else is strictly ignored
+TEAM_SCORES_GID = "87009911"
+KSCAT_CALC_GID = "758073782"
+
+TEAM_SCORES_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={TEAM_SCORES_GID}"
+KSCAT_CALC_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={KSCAT_CALC_GID}"
+
+TEAM_SCORES_TAB_NAME = "Team Scores"
+KSCAT_CALC_TAB_NAME = "KSCAT Calc"
 
 DEFAULT_PROFILE_DIR = Path.home() / ".config" / "green-tab" / "browser-profile"
 SCREENSHOT_DIR = Path("/tmp/green-tab-screenshots")
@@ -60,10 +62,9 @@ SCREENSHOT_DIR = Path("/tmp/green-tab-screenshots")
 class ExtractionResult:
     """Result of a sheet extraction attempt."""
     success: bool = False
-    raw_text: str = ""
-    method: str = ""  # "csv_download" or "clipboard"
-    tab_verified: bool = False
-    sheet_title: str = ""  # e.g., "Aug - 26 - Google Sheets"
+    team_scores_csv: str = ""       # Raw CSV from Team Scores tab
+    kscat_calc_csv: str = ""        # Raw CSV from KSCAT Calc tab
+    sheet_title: str = ""           # e.g., "Aug - 26 - Google Sheets"
     error: str = ""
     details: dict[str, Any] = field(default_factory=dict)
 
@@ -122,9 +123,9 @@ def _clean_stale_locks(profile_dir: Path) -> None:
 
 class SheetExtractor:
     """
-    Extracts data from a restricted Google Sheet using an authenticated
-    Chromium browser profile. NEVER accesses, decrypts, or exports
-    authentication cookies or session tokens.
+    Extracts data from EXACTLY TWO tabs in the restricted Google Sheet
+    using an authenticated Chromium browser profile.
+    NEVER accesses, decrypts, or exports authentication cookies or session tokens.
     """
 
     def __init__(
@@ -142,7 +143,7 @@ class SheetExtractor:
         self._playwright = None
 
     def extract(self) -> ExtractionResult:
-        """Main extraction flow. Returns ExtractionResult with raw text data."""
+        """Main extraction flow. Returns ExtractionResult with raw CSV text from both sources."""
         if not self.profile_dir.exists():
             return ExtractionResult(
                 success=False,
@@ -183,10 +184,6 @@ class SheetExtractor:
                 )
 
                 try:
-                    self._context.grant_permissions(
-                        ["clipboard-read", "clipboard-write"],
-                        origin="https://docs.google.com",
-                    )
                     result = self._navigate_and_extract()
                 finally:
                     try:
@@ -205,14 +202,14 @@ class SheetExtractor:
         return result
 
     def _navigate_and_extract(self) -> ExtractionResult:
-        """Navigate to the sheet, verify auth, select tab, and extract data."""
+        """Navigate to the sheet, verify auth, and download CSV from both tabs."""
         result = ExtractionResult()
         page = self._context.new_page()
 
         try:
-            # ── Step 1: Navigate to the sheet ──
+            # ── Step 1: Navigate to verify auth ──
             page.goto(
-                f"{SHEET_URL}?gid={PRIMARY_GID}#gid={PRIMARY_GID}",
+                f"{SHEET_URL}?gid={TEAM_SCORES_GID}#gid={TEAM_SCORES_GID}",
                 wait_until="domcontentloaded",
                 timeout=self.timeout_ms,
             )
@@ -233,54 +230,35 @@ class SheetExtractor:
                 page.close()
                 return result
 
-            # Capture sheet title for month detection (e.g., "Aug - 26 - Google Sheets")
             result.sheet_title = title
 
-            # ── Step 3: Select "Team Scores" tab ──
-            tab_found = self._select_team_scores_tab(page)
-            result.tab_verified = tab_found
-            result.details["tab_found"] = tab_found
-
-            if not tab_found:
-                # Check if we're already on the right tab by URL gid
-                if PRIMARY_GID in page.url:
-                    tab_found = True
-                    result.details["tab_selection"] = "verified_by_gid"
-                    result.tab_verified = True
-
-            # ── Step 4: Try CSV download (Priority 1) ──
-            csv_result = self._try_csv_download()
-            if csv_result.success:
-                result.success = True
-                result.raw_text = csv_result.raw_text
-                result.method = "csv_download"
-                result.details["csv_download"] = "success"
+            # ── Step 3: Download Team Scores CSV ──
+            print(f"[extractor] Downloading Team Scores CSV (gid={TEAM_SCORES_GID})...")
+            ts_csv = self._download_csv(TEAM_SCORES_CSV_URL, "Team Scores")
+            if ts_csv is None:
+                result.error = f"Failed to download Team Scores CSV. See logs above."
                 page.close()
                 return result
 
-            result.details["csv_download"] = f"failed: {csv_result.error}"
+            result.team_scores_csv = ts_csv
+            result.details["team_scores_chars"] = len(ts_csv)
+            print(f"[extractor] ✅ Team Scores: {len(ts_csv)} chars")
 
-            # ── Step 5: Clipboard extraction (Priority 2) ──
-            # Make sure we're on the right tab first
-            if not result.tab_verified:
-                tab_found = self._select_team_scores_tab(page)
-                result.tab_verified = tab_found
-
-            clip_result = self._try_clipboard_extraction(page)
-            if clip_result.success:
-                result.success = True
-                result.raw_text = clip_result.raw_text
-                result.method = "clipboard"
-                result.details["clipboard"] = "success"
+            # ── Step 4: Download KSCAT Calc CSV ──
+            print(f"[extractor] Downloading KSCAT Calc CSV (gid={KSCAT_CALC_GID})...")
+            kc_csv = self._download_csv(KSCAT_CALC_CSV_URL, "KSCAT Calc")
+            if kc_csv is None:
+                result.error = f"Failed to download KSCAT Calc CSV. See logs above."
                 page.close()
                 return result
 
-            result.error = (
-                f"Both CSV download and clipboard extraction failed. "
-                f"CSV: {csv_result.error}. Clipboard: {clip_result.error}"
-            )
-            if self.screenshot_on_failure:
-                self._save_screenshot(page, "both_methods_failed")
+            result.kscat_calc_csv = kc_csv
+            result.details["kscat_calc_chars"] = len(kc_csv)
+            print(f"[extractor] ✅ KSCAT Calc: {len(kc_csv)} chars")
+
+            result.success = True
+            page.close()
+            return result
 
         except Exception as e:
             result.error = f"Extraction error: {e}"
@@ -289,87 +267,32 @@ class SheetExtractor:
                     self._save_screenshot(page, f"exception_{type(e).__name__}")
                 except Exception:
                     pass
-
+            return result
         finally:
             try:
                 page.close()
             except Exception:
                 pass
 
-        return result
-
-    def _select_team_scores_tab(self, page) -> bool:
-        """Find and click the 'Team Scores' tab in the Google Sheets UI."""
-        selectors = [
-            '.docs-sheet-tab-name',
-            '[role="tab"]',
-        ]
-
-        for selector in selectors:
-            try:
-                tabs = page.locator(selector).all()
-                for tab in tabs:
-                    text = tab.inner_text().strip()
-                    if TARGET_TAB_NAME.lower() in text.lower():
-                        tab.click()
-                        page.wait_for_timeout(3000)
-                        return True
-            except Exception:
-                continue
-
-        # Fallback: use JavaScript to find and click
-        try:
-            found = page.evaluate(f"""() => {{
-                const tabs = document.querySelectorAll('.docs-sheet-tab-name, .docs-sheet-tab');
-                for (const tab of tabs) {{
-                    if (tab.innerText && tab.innerText.toLowerCase().includes('{TARGET_TAB_NAME.lower()}')) {{
-                        tab.click();
-                        return true;
-                    }}
-                }}
-                return false;
-            }}""")
-            if found:
-                page.wait_for_timeout(3000)
-                return True
-        except Exception:
-            pass
-
-        return False
-
-    def _try_csv_download(self) -> ExtractionResult:
+    def _download_csv(self, url: str, label: str) -> str | None:
         """
-        Priority 1: Download CSV via the export URL using Playwright's
-        download handling. The key insight is that navigating to the
-        export URL triggers a download event, not a page navigation.
-        We use expect_download to catch it.
+        Download CSV from the given export URL using a new page context.
+        Returns the CSV text content, or None on failure.
         """
-        result = ExtractionResult()
-
         if not self._context:
-            result.error = "No browser context"
-            return result
+            return None
 
-        download_page = self._context.new_page()
-
+        dl_page = self._context.new_page()
         try:
-            with download_page.expect_download(timeout=30000) as download_info:
-                # Navigate to the export URL — this triggers a download
-                # The goto will raise "Download is starting" which is expected
-                # because Playwright intercepts the download event
+            with dl_page.expect_download(timeout=30000) as dl_info:
                 try:
-                    download_page.goto(CSV_EXPORT_URL, timeout=30000)
+                    dl_page.goto(url, timeout=30000)
                 except Exception as goto_err:
-                    # "Download is starting" error is expected — the download
-                    # is captured by expect_download, not by the navigation
                     if "Download is starting" not in str(goto_err) and "Download" not in str(goto_err):
-                        # Unexpected error — re-raise
                         raise goto_err
 
-            download = download_info.value
-
-            # Save to temp file
-            tmp_path = f"/tmp/green-tab-export-{int(time.time())}.csv"
+            download = dl_info.value
+            tmp_path = f"/tmp/green-tab-{label.replace(' ', '-').lower()}-{int(time.time())}.csv"
             download.save_as(tmp_path)
 
             content = Path(tmp_path).read_text(encoding="utf-8")
@@ -382,114 +305,27 @@ class SheetExtractor:
 
             # Validate content
             if not content or len(content) < 50:
-                result.error = f"Downloaded CSV is too small ({len(content)} chars)"
-                return result
+                print(f"[extractor] ❌ {label} CSV is too small ({len(content)} chars)")
+                return None
 
             if "accounts.google.com" in content[:500] or "Sign in" in content[:500]:
-                result.error = "CSV download returned a login page — session expired"
-                return result
+                print(f"[extractor] ❌ {label} CSV returned a login page — session expired")
+                return None
 
             if "<!DOCTYPE" in content[:100] or "<html" in content[:100].lower():
-                result.error = "CSV download returned HTML, not CSV"
-                return result
+                print(f"[extractor] ❌ {label} CSV returned HTML, not CSV")
+                return None
 
-            # Validate this is from Team Scores (not Bamboo ID)
-            content_lower = content[:2000].lower()
-            bamboo_indicators = ["bamboo id", "bamboo_id", "citrix user"]
-            score_indicators = ["csat", "productivity", "aht", "fcr"]
-            has_bamboo = any(ind in content_lower for ind in bamboo_indicators)
-            has_scores = any(ind in content_lower for ind in score_indicators)
-
-            if has_bamboo and not has_scores:
-                result.error = "CSV appears to be from 'Bamboo ID' tab, not 'Team Scores'"
-                return result
-
-            # SUCCESS
-            result.success = True
-            result.raw_text = content
-            result.method = "csv_download"
-            return result
+            return content
 
         except Exception as e:
-            result.error = f"CSV download failed: {e}"
-            return result
-
+            print(f"[extractor] ❌ {label} CSV download failed: {e}")
+            return None
         finally:
             try:
-                download_page.close()
+                dl_page.close()
             except Exception:
                 pass
-
-    def _try_clipboard_extraction(self, page) -> ExtractionResult:
-        """
-        Priority 2: Select all cells on the active tab and copy to clipboard.
-        Google Sheets Ctrl+A selects the active sheet's data.
-        """
-        result = ExtractionResult()
-
-        try:
-            # Ensure we're on the sheet page
-            if "docs.google.com/spreadsheets" not in page.url:
-                page.goto(
-                    f"{SHEET_URL}?gid={PRIMARY_GID}#gid={PRIMARY_GID}",
-                    wait_until="domcontentloaded",
-                    timeout=self.timeout_ms,
-                )
-                page.wait_for_timeout(5000)
-
-            # Focus the sheet area
-            try:
-                page.locator('[role="grid"], .grid-container, #grid-container').first.click()
-                page.wait_for_timeout(500)
-            except Exception:
-                page.click("body")
-                page.wait_for_timeout(500)
-
-            # Select all and copy
-            page.keyboard.press("Control+a")
-            page.wait_for_timeout(1000)
-            page.keyboard.press("Control+c")
-            page.wait_for_timeout(2000)
-
-            # Read clipboard
-            clipboard_text = page.evaluate("""async () => {
-                try { return await navigator.clipboard.readText(); }
-                catch (e) { return 'CLIPBOARD_ERROR: ' + e.message; }
-            }""")
-
-            if not clipboard_text:
-                result.error = "Clipboard is empty"
-                return result
-
-            if clipboard_text.startswith("CLIPBOARD_ERROR:"):
-                result.error = f"Clipboard read failed: {clipboard_text}"
-                return result
-
-            # Validate
-            if "accounts.google.com" in clipboard_text[:500] or "Sign in" in clipboard_text[:500]:
-                result.error = "Clipboard contains login page content — session expired"
-                return result
-
-            content_lower = clipboard_text[:2000].lower()
-            bamboo_indicators = ["bamboo id", "bamboo_id", "citrix user"]
-            if any(ind in content_lower for ind in bamboo_indicators):
-                score_indicators = ["csat", "productivity", "aht", "fcr"]
-                if not any(ind in content_lower for ind in score_indicators):
-                    result.error = "Clipboard appears to be from 'Bamboo ID' tab, not 'Team Scores'"
-                    return result
-
-            if "\t" not in clipboard_text and "," not in clipboard_text:
-                result.error = "Clipboard doesn't appear to contain spreadsheet data"
-                return result
-
-            result.success = True
-            result.raw_text = clipboard_text
-            result.method = "clipboard"
-            return result
-
-        except Exception as e:
-            result.error = f"Clipboard extraction failed: {e}"
-            return result
 
     def _save_screenshot(self, page, label: str) -> Path | None:
         """Save a screenshot for debugging. Never includes auth secrets."""
@@ -531,7 +367,7 @@ def interactive_login() -> dict[str, Any] | None:
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
-            headless=False,  # MUST be visible for manual login
+            headless=False,
             channel="chromium",
             args=[
                 "--disable-blink-features=AutomationControlled",
@@ -551,7 +387,7 @@ def interactive_login() -> dict[str, Any] | None:
 
         print("[login] Opening Google Sheet in browser...")
         page.goto(
-            f"{SHEET_URL}?gid={PRIMARY_GID}#gid={PRIMARY_GID}",
+            f"{SHEET_URL}?gid={TEAM_SCORES_GID}#gid={TEAM_SCORES_GID}",
             wait_until="domcontentloaded",
             timeout=120000,
         )
@@ -580,19 +416,10 @@ def interactive_login() -> dict[str, Any] | None:
             "loginAt": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "profileDir": str(profile_dir),
             "verified": test_result.success,
-            "membersFound": 0,
         }
 
         if test_result.success:
-            from sheet_parser import parse_csv, validate_team_data
-            try:
-                rows = parse_csv(test_result.raw_text) if test_result.method == "csv_download" else parse_tsv(test_result.raw_text)
-                data = validate_team_data(rows)
-                result["membersFound"] = len(data.get("members", []))
-                result["monthLabel"] = data.get("monthLabel", "")
-            except Exception:
-                pass
-            print(f"[login] ✅ Verified! Found {result['membersFound']} members.")
+            print(f"[login] ✅ Verified! Both data sources accessible.")
             print(f"[login] Profile saved to: {profile_dir}")
         else:
             print(f"[login] ⚠️  Could not verify: {test_result.error}")

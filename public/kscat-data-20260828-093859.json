@@ -1,0 +1,337 @@
+{
+  "agents": [
+    {
+      "agent": "abdallah.abdallah@tabby.ai",
+      "csat_count": 14.0,
+      "kscat_count": 1.0,
+      "dsat_count": 2.0,
+      "total_count": 17.0,
+      "total_without_karma": 16.0,
+      "kscat_pct": 82.0,
+      "csat_pct": 88.0,
+      "variance": -5.0
+    },
+    {
+      "agent": "abdullah.mohamed@tabby.ai",
+      "csat_count": 0.0,
+      "kscat_count": 1.0,
+      "dsat_count": 0.0,
+      "total_count": 1.0,
+      "total_without_karma": 0.0,
+      "kscat_pct": 0.0,
+      "csat_pct": null,
+      "variance": 0.0
+    },
+    {
+      "agent": "ahmed.ahmed.5@tabby.ai",
+      "csat_count": 30.0,
+      "kscat_count": 34.0,
+      "dsat_count": 15.0,
+      "total_count": 79.0,
+      "total_without_karma": 45.0,
+      "kscat_pct": 38.0,
+      "csat_pct": 67.0,
+      "variance": -29.0
+    },
+    {
+      "agent": "ahmed.gelal@tabby.ai",
+      "csat_count": 22.0,
+      "kscat_count": 9.0,
+      "dsat_count": 15.0,
+      "total_count": 46.0,
+      "total_without_karma": 37.0,
+      "kscat_pct": 48.0,
+      "csat_pct": 59.0,
+      "variance": -12.0
+    },
+    {
+      "agent": "ahmed.radwan@tabby.ai",
+      "csat_count": 7.0,
+      "kscat_count": 3.0,
+      "dsat_count": 0.0,
+      "total_count": 10.0,
+      "total_without_karma": 7.0,
+      "kscat_pct": 70.0,
+      "csat_pct": 100.0,
+      "variance": -30.0
+    },
+    {
+      "agent": "belal.kamel@tabby.ai",
+      "csat_count": 39.0,
+      "kscat_count": 39.0,
+      "dsat_count": 12.0,
+      "total_count": 90.0,
+      "total_without_karma": 51.0,
+      "kscat_pct": 43.0,
+      "csat_pct": 76.0,
+      "variance": -33.0
+    },
+    {
+      "agent": "mohamed.hanafy@tabby.ai",
+      "csat_count": 17.0,
+      "kscat_count": 17.0,
+      "dsat_count": 7.0,
+      "total_count": 41.0,
+      "total_without_karma": 24.0,
+      "kscat_pct": 41.0,
+      "csat_pct": 71.0,
+      "variance": -29.0
+    },
+    {
+      "agent": "mohamed.marei@tabby.ai",
+      "csat_count": 11.0,
+      "kscat_count": 9.0,
+      "dsat_count": 6.0,
+      "total_count": 26.0,
+      "total_without_karma": 17.0,
+      "kscat_pct": 42.0,
+      "csat_pct": 65.0,
+      "variance": -22.0
+    },
+    {
+      "agent": "mohamed.mohamed.27@tabby.ai",
+      "csat_count": 1.0,
+      "kscat_count": 3.0,
+      "dsat_count": 0.0,
+      "total_count": 4.0,
+      "total_without_karma": 1.0,
+      "kscat_pct": 25.0,
+      "csat_pct": 100.0,
+      "variance": -75.0
+    },
+    {
+      "agent": "omar.allaa@tabby.ai",
+      "csat_count": 30.0,
+      "kscat_count": 30.0,
+      "dsat_count": 16.0,
+      "total_count": 76.0,
+      "total_without_karma": 46.0,
+      "kscat_pct": 39.0,
+      "csat_pct": 65.0,
+      "variance": -26.0
+    },
+    {
+      "agent": "omar.sobhy.1@tabby.ai",
+      "csat_count": 32.0,
+      "kscat_count": 27.0,
+      "dsat_count": 23.0,
+      "total_count": 82.0,
+      "total_without_karma": 55.0,
+      "kscat_pct": 39.0,
+      "csat_pct": 58.0,
+      "variance": -19.0
+    },
+    {
+      "agent": "sherif.fathy.2@tabby.ai",
+      "csat_count": 0.0,
+      "kscat_count": 0.0,
+      "dsat_count": 0.0,
+      "total_count": 0.0,
+      "total_without_karma": 0.0,
+      "kscat_pct": null,
+      "csat_pct": null,
+      "variance": 0.0
+    },
+    {
+      "agent": "youssef.shenoda@tabby.ai",
+      "csat_count": 34.0,
+      "kscat_count": 27.0,
+      "dsat_count": 14.0,
+      "total_count": 75.0,
+      "total_without_karma": 48.0,
+      "kscat_pct": 45.0,
+      "csat_pct": 71.0,
+      "variance": -26.0
+    }
+  ],
+  "team_score": {
+    "agent": "Team Score",
+    "csat_count": 237.0,
+    "kscat_count": 200.0,
+    "dsat_count": 110.0,
+    "total_count": 547.0,
+    "total_without_karma": 347.0,
+    "kscat_pct": 43.3,
+    "csat_pct": 68.3,
+    "variance": -25.0
+  },
+  "headers": [
+    "Agent",
+    "CSAT",
+    "KSCAT",
+    "DSAT",
+    "Total count",
+    "Total without Karma",
+    "KSCAT",
+    "CSAT",
+    "Variance between CSAT and KSCAT"
+  ],
+  "raw_range": [
+    [
+      "Agent",
+      "CSAT",
+      "KSCAT",
+      "DSAT",
+      "Total count",
+      "Total without Karma",
+      "KSCAT",
+      "CSAT",
+      "Variance between CSAT and KSCAT"
+    ],
+    [
+      "abdallah.abdallah@tabby.ai",
+      "14",
+      "1",
+      "2",
+      "17",
+      "16",
+      "82%",
+      "88%",
+      "-5%"
+    ],
+    [
+      "abdullah.mohamed@tabby.ai",
+      "0",
+      "1",
+      "0",
+      "1",
+      "0",
+      "0%",
+      "",
+      "0%"
+    ],
+    [
+      "ahmed.ahmed.5@tabby.ai",
+      "30",
+      "34",
+      "15",
+      "79",
+      "45",
+      "38%",
+      "67%",
+      "-29%"
+    ],
+    [
+      "ahmed.gelal@tabby.ai",
+      "22",
+      "9",
+      "15",
+      "46",
+      "37",
+      "48%",
+      "59%",
+      "-12%"
+    ],
+    [
+      "ahmed.radwan@tabby.ai",
+      "7",
+      "3",
+      "0",
+      "10",
+      "7",
+      "70%",
+      "100%",
+      "-30%"
+    ],
+    [
+      "belal.kamel@tabby.ai",
+      "39",
+      "39",
+      "12",
+      "90",
+      "51",
+      "43%",
+      "76%",
+      "-33%"
+    ],
+    [
+      "mohamed.hanafy@tabby.ai",
+      "17",
+      "17",
+      "7",
+      "41",
+      "24",
+      "41%",
+      "71%",
+      "-29%"
+    ],
+    [
+      "mohamed.marei@tabby.ai",
+      "11",
+      "9",
+      "6",
+      "26",
+      "17",
+      "42%",
+      "65%",
+      "-22%"
+    ],
+    [
+      "mohamed.mohamed.27@tabby.ai",
+      "1",
+      "3",
+      "0",
+      "4",
+      "1",
+      "25%",
+      "100%",
+      "-75%"
+    ],
+    [
+      "omar.allaa@tabby.ai",
+      "30",
+      "30",
+      "16",
+      "76",
+      "46",
+      "39%",
+      "65%",
+      "-26%"
+    ],
+    [
+      "omar.sobhy.1@tabby.ai",
+      "32",
+      "27",
+      "23",
+      "82",
+      "55",
+      "39%",
+      "58%",
+      "-19%"
+    ],
+    [
+      "sherif.fathy.2@tabby.ai",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "",
+      "",
+      "0%"
+    ],
+    [
+      "youssef.shenoda@tabby.ai",
+      "34",
+      "27",
+      "14",
+      "75",
+      "48",
+      "45%",
+      "71%",
+      "-26%"
+    ],
+    [
+      "Team Score",
+      "237",
+      "200",
+      "110",
+      "547",
+      "347",
+      "43.3%",
+      "68.3%",
+      "-25%"
+    ]
+  ],
+  "fetchedAt": "2026-08-28T06:38:59.948958Z"
+}

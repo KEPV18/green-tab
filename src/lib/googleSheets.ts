@@ -9,20 +9,26 @@
  *
  * MAPPING DOCUMENTATION (Source → DB → Frontend):
  * ─────────────────────────────────────────────────────────────────
- * Google Sheet "CSAT %" (Tab 0 Col 2)            → csat                      → CSAT
- * Google Sheet "Productivity 8-hrs" (Sheet19)    → productivity               → Productivity
- * Google Sheet "Escalation rate %" (Sheet19)      → escalation_rate            → Escalation Rate
- * Google Sheet "Adherence, %" (Sheet19)           → adherence                  → Adherence
- * Google Sheet "Average basket time" (Sheet19)     → chat_aht                   → ABT (Average Basket Time)
- * Google Sheet "IRT 2 replier" (Sheet19)           → irt_replier                → IRT 2 Replier
- * Google Sheet "FCR, %" (Tab 0 Col 8)             → fcr                        → FCR
- * Google Sheet "Closed after resolution, %"         → closed_after_resolution    → Closed After Resolution
- * Google Sheet "Break exceed" (Sheet19)            → break_exceed               → Break Exceed
- * Google Sheet "Idle time" (Sheet19)               → idle_time                  → Idle Time
- * Google Sheet "Deescalation rate %" (Tab 0/19)    → deescalation_rate          → De-escalation Rate
- * Google Sheet "Occupancy daily, %" (Sheet19)       → occupancy                  → Occupancy
- * Google Sheet "Average group basket time" (Sheet19) → avg_group_basket_time      → Avg Group Basket Time
- * Google Sheet "Closed tickets, %" (Tab 0 Col 8)   → closed_tickets_pct          → Close Rate
+ * Google Sheet "CSAT %" (Team Scores Col 2)          → csat                      → CSAT
+ * Google Sheet "Productivity 8-hrs" (Team Scores)  → productivity               → Productivity
+ * Google Sheet "Escalation rate %" (Team Scores)    → escalation_rate            → Escalation Rate
+ * Google Sheet "Adherence, %" (Team Scores)         → adherence                  → Adherence
+ * Google Sheet "Average basket time" (Team Scores)   → chat_aht                   → ABT (Average Basket Time)
+ * Google Sheet "IRT 2 replier" (Team Scores)         → irt_replier                → IRT 2 Replier
+ * Google Sheet "FCR, %" (Team Scores Col 8)         → fcr                        → FCR
+ * Google Sheet "Closed after resolution, %" (Team Scores) → closed_after_resolution    → Closed After Resolution
+ * Google Sheet "Break exceed" (Team Scores Table2)   → break_exceed               → Break Exceed
+ * Google Sheet "Idle time" (Team Scores Table2)     → idle_time                  → Idle Time
+ * Google Sheet "Deescalation rate %" (Team Scores)  → deescalation_rate          → De-escalation Rate
+ * Google Sheet "Occupancy daily, %" (Team Scores)   → occupancy                  → Occupancy
+ * Google Sheet "Average group basket time" (Team Scores) → avg_group_basket_time → Avg Group Basket Time
+ * Google Sheet "Closed tickets, %" (Team Scores)   → closed_tickets_pct          → Close Rate
+ *
+ * KSCAT DATA (separate source):
+ * ─────────────────────────────────────────────────────────────────
+ * KSCAT Calc tab, range P1:X15 → kscat_data table in Supabase
+ * Columns: Agent, CSAT count, KSCAT count, DSAT count, Total count,
+ *   Total without Karma, KSCAT %, CSAT %, Variance between CSAT and KSCAT
  *
  * ⚠️ CRITICAL: Close Rate = "Closed tickets, %" = closed_tickets_pct
  *    NOT "Closed After Resolution" = closed_after_resolution
@@ -455,6 +461,161 @@ async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
   } catch {}
 
   return teamData;
+}
+
+// ─── KSCAT Data Types ──────────────────────────────────────────────────────────
+
+export interface KscatAgentRow {
+  agentEmail: string;
+  agentName: string;
+  csatCount: number | null;
+  kscatCount: number | null;
+  dsatCount: number | null;
+  totalCount: number | null;
+  totalWithoutKarma: number | null;
+  kscatPct: number | null;
+  csatPct: number | null;
+  variance: number | null;
+}
+
+export interface KscatTeamScore {
+  csatCount: number | null;
+  kscatCount: number | null;
+  dsatCount: number | null;
+  totalCount: number | null;
+  totalWithoutKarma: number | null;
+  kscatPct: number | null;
+  csatPct: number | null;
+  variance: number | null;
+}
+
+export interface KscatData {
+  agents: KscatAgentRow[];
+  teamScore: KscatTeamScore | null;
+  month: string;
+  fetchedAt: string;
+}
+
+interface SupabaseKscatRow {
+  id: string;
+  month: string;
+  agent_email: string;
+  agent_name: string | null;
+  csat_count: number | null;
+  kscat_count: number | null;
+  dsat_count: number | null;
+  total_count: number | null;
+  total_without_karma: number | null;
+  kscat_pct: number | null;
+  csat_pct: number | null;
+  variance: number | null;
+  source: string;
+  fetched_at: string;
+}
+
+const KSCAT_CACHE_KEY = "gt_kscat_data_cache";
+
+/**
+ * Fetch KSCAT data from Supabase kscat_data table.
+ * Source: KSCAT Calc tab, range P1:X15 ONLY.
+ */
+export async function fetchKscatData(): Promise<KscatData | null> {
+  // 1. Check localStorage cache
+  try {
+    const cached = readJSON<{ data: KscatData; fetchedAt: number } | null>(KSCAT_CACHE_KEY, null);
+    if (cached && cached.data && cached.data.agents.length > 0) {
+      const age = Date.now() - cached.fetchedAt;
+      if (age < CACHE_TTL_MS) {
+        return cached.data;
+      }
+    }
+  } catch {}
+
+  // 2. Try Supabase
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from("kscat_data")
+        .select("*")
+        .order("agent_email");
+
+      if (!error && data && data.length > 0) {
+        const agents: KscatAgentRow[] = (data as SupabaseKscatRow[]).map((row) => ({
+          agentEmail: row.agent_email,
+          agentName: row.agent_name || row.agent_email.split("@")[0],
+          csatCount: row.csat_count,
+          kscatCount: row.kscat_count,
+          dsatCount: row.dsat_count,
+          totalCount: row.total_count,
+          totalWithoutKarma: row.total_without_karma,
+          kscatPct: row.kscat_pct,
+          csatPct: row.csat_pct,
+          variance: row.variance,
+        }));
+
+        const month = (data as SupabaseKscatRow[])[0]?.month || "";
+        const kscatData: KscatData = {
+          agents,
+          teamScore: null, // Team score row computed separately if needed
+          month,
+          fetchedAt: new Date().toISOString(),
+        };
+
+        try {
+          writeJSON(KSCAT_CACHE_KEY, { data: kscatData, fetchedAt: Date.now() });
+        } catch {}
+
+        return kscatData;
+      }
+    } catch (err) {
+      console.warn("[googleSheets] KSCAT Supabase fetch failed:", err);
+    }
+  }
+
+  // 3. Try static JSON file
+  try {
+    const res = await fetch("/kscat-data.json", {
+      cache: "no-cache",
+      headers: { Accept: "application/json" },
+    });
+    if (res.ok) {
+      const raw = await res.json();
+      if (raw && raw.agents && raw.agents.length > 0) {
+        const kscatData: KscatData = {
+          agents: raw.agents.map((a: Record<string, unknown>) => ({
+            agentEmail: (a.agent as string) || "",
+            agentName: (a.agent as string) || "",
+            csatCount: (a.csat_count as number) ?? null,
+            kscatCount: (a.kscat_count as number) ?? null,
+            dsatCount: (a.dsat_count as number) ?? null,
+            totalCount: (a.total_count as number) ?? null,
+            totalWithoutKarma: (a.total_without_karma as number) ?? null,
+            kscatPct: (a.kscat_pct as number) ?? null,
+            csatPct: (a.csat_pct as number) ?? null,
+            variance: (a.variance as number) ?? null,
+          })),
+          teamScore: raw.team_score || null,
+          month: raw._meta?.range || "",
+          fetchedAt: new Date().toISOString(),
+        };
+        try {
+          writeJSON(KSCAT_CACHE_KEY, { data: kscatData, fetchedAt: Date.now() });
+        } catch {}
+        return kscatData;
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Find a specific agent's KSCAT data by email.
+ */
+export function findKscatByAgent(kscatData: KscatData, email: string): KscatAgentRow | null {
+  const emailLower = email.toLowerCase();
+  return kscatData.agents.find((a) => a.agentEmail.toLowerCase() === emailLower) || null;
 }
 
 /**

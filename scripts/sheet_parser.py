@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
 """
-Green Tab — Google Sheet TSV/CSV Parser & Validator
+Green Tab — Google Sheet CSV Parser (v2)
 
-Standalone parser that validates extracted data BEFORE submission.
-No browser dependency. No network dependency. No auth dependency.
+Parses data from EXACTLY TWO sources:
+1. "Team Scores" tab CSV (gid=87009911) → team metrics per agent
+2. "KSCAT Calc" tab CSV (gid=758073782), range P1:X15 → KSCAT/Karma data per agent
 
-Two source tabs are supported:
+NO other tabs are supported. NO auto-detection of format.
+NO fallback to Sheet19, Tab 0, Bamboo ID, etc.
 
-PRIMARY: Sheet19 (gid=1066657646) — vertical/metric-per-row format
-  - Each agent has 20 rows (one per metric)
-  - Columns: [Ops Manager] [Team Lead] [Agent Email] [Metric Name] [Value]
-  - Contains Chat AHT ("Average handling time") which Tab 0 lacks
+Team Scores structure:
+  - Rows 1-13: Bamboo ID section (IGNORED)
+  - Row ~16: Header for metrics: Agent's Email, CSAT, CSAT, Productivity 8-hrs,
+    Escalation rate %, Adherence %, Average basket time, IRT 2 replier,
+    FCR %, Closed after resolution %
+  - Rows 17+: Agent metric data
+  - Second table: Agent's Email, Tardy, Break exceed, Idle Time, Genesys AHT, etc.
 
-SECONDARY: Tab 0 "Team Scores" (gid=87009911) — horizontal table format
-  - Table 1: Agent Email | CSAT % | Productivity | ... | FCR %
-  - Table 2: Agent Email | ... | Genesys Inbound AHT + ACW (EMPTY)
-
-The parser auto-detects which format is being parsed and handles both.
+KSCAT Calc structure (P1:X15):
+  - P: Agent (email)
+  - Q: CSAT (count)
+  - R: KSCAT (count)
+  - S: DSAT (count)
+  - T: Total count
+  - U: Total without Karma
+  - V: KSCAT (percentage)
+  - W: CSAT (percentage)
+  - X: Variance between CSAT and KSCAT
 
 Usage:
-    from sheet_parser import parse_tsv, parse_csv, validate_team_data
+    from sheet_parser import parse_team_scores, parse_kscat_calc, ValidationError
 
-    rows = parse_tsv(raw_clipboard_text)
-    data = validate_team_data(rows)
+    team_data = parse_team_scores(csv_text)
+    kscat_data = parse_kscat_calc(csv_text)
 """
 
 import csv
@@ -43,21 +53,6 @@ class ValidationError(Exception):
 
 # ── Parsers ──────────────────────────────────────────────────────────────────────
 
-def parse_tsv(text: str) -> list[list[str]]:
-    """Parse tab-separated values from Google Sheets clipboard."""
-    if not text or not text.strip():
-        raise ValidationError("Empty TSV input", {"length": 0})
-
-    lines = text.split("\n")
-    rows: list[list[str]] = []
-    for line in lines:
-        cells = line.split("\t")
-        cells = [c.strip() for c in cells]
-        if any(c for c in cells):
-            rows.append(cells)
-    return rows
-
-
 def parse_csv(text: str) -> list[list[str]]:
     """Parse CSV from Google Sheets download."""
     if not text or not text.strip():
@@ -67,6 +62,20 @@ def parse_csv(text: str) -> list[list[str]]:
     rows: list[list[str]] = []
     for row in reader:
         cells = [c.strip() for c in row]
+        if any(c for c in cells):
+            rows.append(cells)
+    return rows
+
+
+def parse_tsv(text: str) -> list[list[str]]:
+    """Parse tab-separated values from Google Sheets clipboard."""
+    if not text or not text.strip():
+        raise ValidationError("Empty TSV input", {"length": 0})
+
+    lines = text.split("\n")
+    rows: list[list[str]] = []
+    for line in lines:
+        cells = [c.strip() for c in line.split("\t")]
         if any(c for c in cells):
             rows.append(cells)
     return rows
@@ -111,182 +120,246 @@ def parse_time_to_minutes(val: str) -> float | None:
         return None
 
 
-# ── Detection ─────────────────────────────────────────────────────────────────────
+# ── Column finder ────────────────────────────────────────────────────────────────
 
-def _detect_format(rows: list[list[str]]) -> str:
+def _find_col(headers: list[str], keywords: list[str]) -> int:
+    """Find a column by any of several keywords. Case-insensitive partial match."""
+    for keyword in keywords:
+        kw = keyword.lower()
+        for i, h in enumerate(headers):
+            if kw in h.lower():
+                return i
+    return -1
+
+
+# ── Team Scores Parser ────────────────────────────────────────────────────────────
+
+def parse_team_scores(csv_text: str) -> dict[str, Any]:
     """
-    Detect whether rows are from Sheet19 (vertical) or Tab 0 (horizontal).
-    
-    Sheet19 has: rows like "Total | Team Lead | email | Metric Name | value"
-    Tab 0 has: header rows like "Agent's Email | CSAT | CSAT | Productivity 8-hrs | ..."
+    Parse the Team Scores tab CSV.
+
+    The tab has two tables stacked vertically:
+    - Table 1 (upper): Agent's Email | CSAT | CSAT | Productivity 8-hrs | Escalation rate % |
+      Adherence % | Average basket time | IRT 2 replier | FCR % | Closed after resolution %
+    - Table 2 (lower): Agent's Email | Tardy | Break exceed | Idle Time |
+      Genesys Inbound AHT + ACW | Average handling time | De-escalation rate % |
+      Occupancy daily % | Avg group basket time | Closed tickets %
+
+    Returns dict with 'members', 'floorAvg', 'monthLabel', 'fetchedAt'.
     """
-    for row in rows[:30]:
+    rows = parse_csv(csv_text)
+
+    if not rows:
+        raise ValidationError("No rows in Team Scores CSV", {"row_count": 0})
+
+    # ── Find Table 1 header row ──
+    table1_header_idx = -1
+    for i, row in enumerate(rows):
         joined = " ".join(row).lower()
-        # Sheet19 vertical format: metric names as row values
-        if "average handling time" in joined or "average basket time" in joined:
-            if "total" in joined and "@" in joined:
-                return "vertical"  # Sheet19 format
-        # Tab 0 horizontal format: column headers
-        if "agent's email" in joined and ("csat" in joined or "productivity" in joined):
-            return "horizontal"  # Tab 0 format
-    
-    # Default: try vertical (Sheet19) format
-    return "vertical"
+        if "agent" in joined and ("csat" in joined or "productivity" in joined):
+            # Make sure it's NOT the Bamboo ID section
+            if "bamboo" not in joined:
+                table1_header_idx = i
+                break
 
+    if table1_header_idx == -1:
+        raise ValidationError(
+            "Could not find Team Scores header row (Agent + CSAT/Productivity)",
+            {"first_5_rows": [" ".join(r[:5]) for r in rows[:5]]}
+        )
 
-# ── Vertical Format Parser (Sheet19) ─────────────────────────────────────────────
+    headers1 = rows[table1_header_idx]
+    email1_col = _find_col(headers1, ["agent's email", "agent email", "email"])
+    csat_raw_col = _find_col(headers1, ["csat"])  # First CSAT = raw score count
+    csat_pct_col = -1
+    # Find second CSAT column (percentage)
+    for i, h in enumerate(headers1):
+        if "csat" in h.lower() and i != csat_raw_col:
+            csat_pct_col = i
+            break
+    prod_col = _find_col(headers1, ["productivity", "prod"])
+    esc_col = _find_col(headers1, ["escalation rate", "escalation"])
+    adh_col = _find_col(headers1, ["adherence"])
+    aht_col = _find_col(headers1, ["average basket time", "basket time"])
+    irt_col = _find_col(headers1, ["irt 2 replier", "irt"])
+    fcr_col = _find_col(headers1, ["fcr", "first call resolution"])
+    car_col = _find_col(headers1, ["closed after resolution"])
 
-def _parse_vertical(rows: list[list[str]], name_map: dict[str, str] | None = None) -> dict[str, Any]:
-    """
-    Parse Sheet19 vertical format: each row is (Ops Manager, Team Lead, Email, Metric, Value, ...).
-    
-    Each agent has ~20 rows, one per metric. We pivot these into per-agent records.
-    """
-    if name_map is None:
-        name_map = {}
-    
-    # Metric name → Green Tab field mapping
-    METRIC_MAP = {
-        "csat adjusted with calls, %": "csat",
-        "csat adjusted with calls,%": "csat",
-        "productivity 8-hrs": "productivity",
-        "productivity 8-hrs": "productivity",
-        "fcr, %": "fcr",
-        "fcr,%": "fcr",
-        "average handling time": "chatAht",
-        "genesys inbound aht + acw": "genesysAht",
-        "average basket time": "avgBasketTime",
-        "average group basket time": "avgGroupBasketTime",
-        "escalation rate %": "escalationRate",
-        "escalation rate%": "escalationRate",
-        "adherence, %": "adherence",
-        "adherence,%": "adherence",
-        "closed after resolution, %": "closedAfterResolution",
-        "closed tickets, %": "closedTicketsPct",
-        "deescalation rate %": "deescalationRate",
-        "deescalation rate%": "deescalationRate",
-        "irt 2 replier": "irt2Replier",
-        "occupancy daily, %": "occupancy",
-        "occupancy daily,%": "occupancy",
-        "concurrency": "concurrency",
-        "shrinkage - agent - unplanned": "shrinkage",
-        "utilization daily, %": "utilization",
-        "utilization daily,%": "utilization",
-        "basket touched tickets": "basketTouchedTickets",
-        "csat adjusted - total scores": "csatRawScore",
-        "closed tickets": "closedTickets",
-        "break exceed": "breakExceed",
-        "idle time": "idleTime",
-    }
-    
-    # Collect per-agent metrics
-    agent_data: dict[str, dict[str, Any]] = {}
-    skip_emails = {"", "total", "team score", "average"}
-    
-    for row in rows:
+    # ── Find Table 2 header row ──
+    table2_header_idx = -1
+    for i in range(table1_header_idx + 1, len(rows)):
+        joined = " ".join(rows[i]).lower()
+        if "agent" in joined and ("break exceed" in joined or "idle time" in joined or "genesys" in joined or "aht" in joined):
+            table2_header_idx = i
+            break
+
+    headers2 = rows[table2_header_idx] if table2_header_idx != -1 else []
+    email2_col = _find_col(headers2, ["agent's email", "agent email", "email"]) if headers2 else -1
+    break_exceed_col = _find_col(headers2, ["break exceed", "break_exceed"]) if headers2 else -1
+    idle_time_col = _find_col(headers2, ["idle time", "idle_time"]) if headers2 else -1
+    genesys_aht_col = _find_col(headers2, ["genesys inbound aht", "genesys aht", "genesys"]) if headers2 else -1
+    chat_aht_col = _find_col(headers2, ["average handling time"]) if headers2 else -1
+    deesc_col = _find_col(headers2, ["de-escalation rate", "deescalation rate", "de-escalation", "deescalation"]) if headers2 else -1
+    occupancy_col = _find_col(headers2, ["occupancy daily", "occupancy"]) if headers2 else -1
+    agbt_col = _find_col(headers2, ["avg group basket time", "average group basket time", "group basket"]) if headers2 else -1
+    close_rate_col = _find_col(headers2, ["closed tickets", "close rate", "closed tickets, %"]) if headers2 else -1
+
+    # ── Parse Table 1 (metrics) ──
+    skip_names = {"team score", "average", "total", "floor", ""}
+    member_map: dict[str, dict[str, Any]] = {}
+
+    data1_end = table2_header_idx if table2_header_idx != -1 else len(rows)
+
+    # Track which emails appear to find summary rows (no @ sign)
+    for i in range(table1_header_idx + 1, data1_end):
+        row = rows[i] if i < len(rows) else []
+        if len(row) < 2:
+            continue
+        email = row[email1_col].strip() if email1_col != -1 and email1_col < len(row) else ""
+        if not email or "@" not in email or email.lower().strip() in skip_names:
+            continue
+
+        key = email.lower()
+        member_map[key] = {
+            "email": email,
+            "name": "",  # Will be filled from ID_Name or email
+            "csat": parse_percent(row[csat_pct_col]) if csat_pct_col != -1 and csat_pct_col < len(row) else None,
+            "productivity": parse_num(row[prod_col]) if prod_col != -1 and prod_col < len(row) else None,
+            "escalationRate": parse_percent(row[esc_col]) if esc_col != -1 and esc_col < len(row) else None,
+            "adherence": parse_percent(row[adh_col]) if adh_col != -1 and adh_col < len(row) else None,
+            "aht": parse_num(row[aht_col]) if aht_col != -1 and aht_col < len(row) else None,
+            "irtReplier": parse_num(row[irt_col]) if irt_col != -1 and irt_col < len(row) else None,
+            "fcr": parse_percent(row[fcr_col]) if fcr_col != -1 and fcr_col < len(row) else None,
+            "closedAfterResolution": parse_percent(row[car_col]) if car_col != -1 and car_col < len(row) else None,
+        }
+
+    # ── Parse Table 2 (AHT/break/idle/de-escalation) ──
+    if table2_header_idx != -1:
+        for i in range(table2_header_idx + 1, len(rows)):
+            row = rows[i] if i < len(rows) else []
+            if len(row) < 2:
+                continue
+            email = row[email2_col].strip() if email2_col != -1 and email2_col < len(row) else ""
+            if not email or "@" not in email or email.lower().strip() in skip_names:
+                continue
+
+            key = email.lower()
+            if key not in member_map:
+                member_map[key] = {"email": email, "name": ""}
+
+            if break_exceed_col != -1 and break_exceed_col < len(row):
+                v = parse_num(row[break_exceed_col])
+                if v is not None:
+                    member_map[key]["breakExceed"] = v
+
+            if idle_time_col != -1 and idle_time_col < len(row):
+                v = parse_time_to_minutes(row[idle_time_col])
+                if v is not None:
+                    member_map[key]["idleTime"] = v
+
+            if genesys_aht_col != -1 and genesys_aht_col < len(row):
+                v = parse_time_to_minutes(row[genesys_aht_col])
+                if v is not None:
+                    member_map[key]["genesysAht"] = v
+
+            if chat_aht_col != -1 and chat_aht_col < len(row):
+                v = parse_time_to_minutes(row[chat_aht_col])
+                if v is not None:
+                    member_map[key]["chatAht"] = v
+
+            if deesc_col != -1 and deesc_col < len(row):
+                v = parse_percent(row[deesc_col])
+                if v is not None:
+                    member_map[key]["deescalationRate"] = v
+
+            if occupancy_col != -1 and occupancy_col < len(row):
+                v = parse_percent(row[occupancy_col])
+                if v is not None:
+                    member_map[key]["occupancy"] = v
+
+            if agbt_col != -1 and agbt_col < len(row):
+                v = parse_num(row[agbt_col])
+                if v is not None:
+                    member_map[key]["avgGroupBasketTime"] = v
+
+            if close_rate_col != -1 and close_rate_col < len(row):
+                v = parse_percent(row[close_rate_col])
+                if v is not None:
+                    member_map[key]["closeRate"] = v
+
+    # ── Fill names from Bamboo ID section (rows 1-13) ──
+    # The first section has: Bamboo ID, Queue, Email, ID_Name, Batch, Citrix user
+    name_map: dict[str, str] = {}
+    for row in rows[:table1_header_idx]:
         if len(row) < 4:
             continue
-        
         # Find the email column (contains @)
-        email = ""
-        email_col = -1
-        for j, cell in enumerate(row):
-            if "@" in cell and cell.strip() not in skip_emails:
-                email = cell.strip()
-                email_col = j
+        row_email = ""
+        for cell in row:
+            if "@" in cell.strip():
+                row_email = cell.strip().lower()
                 break
-        
-        if not email or email.lower() in skip_emails:
+        if not row_email:
             continue
-        
-        metric_name = row[3].strip().lower() if len(row) > 3 else ""
-        value_str = row[4].strip() if len(row) > 4 else ""
-        
-        # Also check right-side mirror columns (cols 7-11)
-        if not value_str and len(row) > 11:
-            value_str = row[11].strip()
-        
-        field = METRIC_MAP.get(metric_name)
-        if not field:
-            continue
-        
-        key = email.lower()
-        if key not in agent_data:
-            name = name_map.get(key, email.split("@")[0].replace(".", " ").replace("_", " ").strip())
-            name = re.sub(r'\s+\d+$', '', name).title()
-            agent_data[key] = {"email": email, "name": name}
-        
-        # Parse value based on field type
-        if field in ("csat", "fcr", "escalationRate", "adherence", "closedAfterResolution",
-                     "closedTicketsPct", "deescalationRate", "occupancy", "utilization", "shrinkage"):
-            agent_data[key][field] = parse_percent(value_str)
-        elif field in ("chatAht", "avgBasketTime", "avgGroupBasketTime", "irt2Replier",
-                       "concurrency", "productivity"):
-            agent_data[key][field] = parse_num(value_str)
-        elif field == "genesysAht":
-            agent_data[key][field] = parse_time_to_minutes(value_str) if value_str else None
-        elif field in ("basketTouchedTickets", "csatRawScore", "closedTickets"):
-            agent_data[key][field] = parse_num(value_str)
-        else:
-            agent_data[key][field] = value_str
-    
-    # Build output
+        # ID_Name is the 4th column (index 3)
+        id_name = row[3].strip() if len(row) > 3 else ""
+        if id_name:
+            name_map[row_email] = id_name
+
+    # ── Build member list ──
     members: list[dict[str, Any]] = []
-    csat_vals: list[float] = []
-    prod_vals: list[float] = []
-    fcr_vals: list[float] = []
-    aht_vals: list[float] = []
-    
-    for key, data in agent_data.items():
-        csat = data.get("csat")
-        productivity = data.get("productivity")
-        fcr = data.get("fcr")
-        chat_aht = data.get("chatAht")
-        genesys_aht = data.get("genesysAht")
-        
-        # For the Green Tab `aht` field: use Chat AHT
-        # (Genesys AHT is stored separately if available)
-        aht = chat_aht
-        
-        scores = [v for v in [csat, productivity, fcr] if v is not None]
-        overall = round(sum(scores) / len(scores), 1) if scores else None
-        
-        if csat is not None:
-            csat_vals.append(csat)
-        if productivity is not None:
-            prod_vals.append(productivity)
-        if fcr is not None:
-            fcr_vals.append(fcr)
-        if aht is not None:
-            aht_vals.append(aht)
-        
-        members.append({
-            "name": data["name"],
-            "email": data["email"],
-            "csat": csat,
-            "productivity": productivity,
-            "fcr": fcr,
-            "aht": aht,
-            "chatAht": chat_aht,
-            "genesysAht": genesys_aht,
-            "overallScore": overall,
-        })
-    
+
+    # Track floor averages
+    csat_vals = []
+    prod_vals = []
+    fcr_vals = []
+    aht_vals = []
+    esc_vals = []
+    adh_vals = []
+    irt_vals = []
+    car_vals = []
+    be_vals = []
+    it_vals = []
+    de_vals = []
+    occ_vals = []
+    agbt_vals = []
+    cr_vals = []
+
+    for key, d in member_map.items():
+        # Fill name
+        name = name_map.get(key, "")
+        if not name:
+            name = d["email"].split("@")[0].replace(".", " ").replace("_", " ").strip()
+            name = re.sub(r'\s+\d+$', '', name).title()
+        d["name"] = name
+
+        # Collect floor average values
+        if d.get("csat") is not None: csat_vals.append(d["csat"])
+        if d.get("productivity") is not None: prod_vals.append(d["productivity"])
+        if d.get("fcr") is not None: fcr_vals.append(d["fcr"])
+        if d.get("aht") is not None: aht_vals.append(d["aht"])
+        if d.get("escalationRate") is not None: esc_vals.append(d["escalationRate"])
+        if d.get("adherence") is not None: adh_vals.append(d["adherence"])
+        if d.get("irtReplier") is not None: irt_vals.append(d["irtReplier"])
+        if d.get("closedAfterResolution") is not None: car_vals.append(d["closedAfterResolution"])
+        if d.get("breakExceed") is not None: be_vals.append(d["breakExceed"])
+        if d.get("idleTime") is not None: it_vals.append(d["idleTime"])
+        if d.get("deescalationRate") is not None: de_vals.append(d["deescalationRate"])
+        if d.get("occupancy") is not None: occ_vals.append(d["occupancy"])
+        if d.get("avgGroupBasketTime") is not None: agbt_vals.append(d["avgGroupBasketTime"])
+        if d.get("closeRate") is not None: cr_vals.append(d["closeRate"])
+
+        members.append(d)
+
     def avg(vals: list[float]) -> float:
         return round(sum(vals) / len(vals), 1) if vals else 0
-    
-    floor_avg = {
-        "csat": avg(csat_vals),
-        "productivity": avg(prod_vals),
-        "fcr": avg(fcr_vals),
-        "aht": avg(aht_vals),
-    }
-    
-    members.sort(key=lambda m: m.get("overallScore") or 0, reverse=True)
-    
-    # Detect month label from header row (row 0 has date)
+
+    # Sort by CSAT descending
+    members.sort(key=lambda m: m.get("csat") or 0, reverse=True)
+
+    # Detect month label from the sheet
     month_label = ""
-    for row in rows[:3]:
+    for row in rows[:table1_header_idx]:
         for cell in row:
             m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", cell)
             if m:
@@ -302,214 +375,156 @@ def _parse_vertical(rows: list[list[str]], name_map: dict[str, str] | None = Non
                 break
         if month_label:
             break
-    
+
     return {
         "members": members,
         "fetchedAt": datetime.utcnow().isoformat() + "Z",
         "monthLabel": month_label,
-        "floorAvg": floor_avg,
+        "floorAvg": {
+            "csat": avg(csat_vals),
+            "productivity": avg(prod_vals),
+            "fcr": avg(fcr_vals),
+            "aht": avg(aht_vals),
+            "escalationRate": avg(esc_vals),
+            "adherence": avg(adh_vals),
+            "irtReplier": avg(irt_vals),
+            "closedAfterResolution": avg(car_vals),
+            "breakExceed": avg(be_vals),
+            "idleTime": avg(it_vals),
+            "deescalationRate": avg(de_vals),
+            "occupancy": avg(occ_vals),
+            "avgGroupBasketTime": avg(agbt_vals),
+            "closeRate": avg(cr_vals),
+        },
         "_meta": {
-            "format": "vertical",
+            "source": "Team Scores",
+            "gid": "87009911",
             "total_rows_raw": len(rows),
             "members_found": len(members),
-            "source": "Sheet19",
+            "table1_header_idx": table1_header_idx,
+            "table2_header_idx": table2_header_idx,
+            "name_map_size": len(name_map),
         },
     }
 
 
-# ── Horizontal Format Parser (Tab 0) ─────────────────────────────────────────────
+# ── KSCAT Calc Parser ────────────────────────────────────────────────────────────
 
-def _parse_horizontal(rows: list[list[str]], name_map: dict[str, str] | None = None) -> dict[str, Any]:
+def parse_kscat_calc(csv_text: str) -> dict[str, Any]:
     """
-    Parse Tab 0 "Team Scores" horizontal format:
-    - Table 1: Agent Email | CSAT | CSAT | Productivity | ... | FCR % | Closed after resolution %
-    - Table 2: Agent Email | Tardy | Break Exceed | Idle Time | Genesys AHT | ...
+    Parse the KSCAT Calc tab CSV, extracting ONLY range P1:X15.
+
+    Columns P through X (0-based indices 15-23):
+    - P (15): Agent (email)
+    - Q (16): CSAT (count)
+    - R (17): KSCAT (count)
+    - S (18): DSAT (count)
+    - T (19): Total count
+    - U (20): Total without Karma
+    - V (21): KSCAT (percentage)
+    - W (22): CSAT (percentage)
+    - X (23): Variance between CSAT and KSCAT
+
+    Rows 1-15: Header + 13 agents + Team Score row
+    Row 1 IS included (header).
+    Row 15 IS included (Team Score).
+
+    Returns dict with 'agents', 'team_score', 'headers', 'raw_range'.
     """
-    if name_map is None:
-        name_map = {}
-    
-    # Find Table 1 header
-    table1_header = -1
-    for i, row in enumerate(rows):
-        joined = " ".join(row).lower()
-        if "agent" in joined and ("csat" in joined or "productivity" in joined):
-            table1_header = i
-            break
-    
-    if table1_header == -1:
-        raise ValidationError("No 'Agent' + 'CSAT/Productivity' header row found")
-    
-    headers1 = rows[table1_header]
-    email1_col = _find_col(headers1, ["agent's email", "agent email", "email"])
-    csat_pct_col = _find_col(headers1, ["csat"])
-    # Find second CSAT column (percentage, not raw score)
-    for i, h in enumerate(headers1):
-        if "csat" in h.lower() and i != csat_pct_col:
-            csat_pct_col = i
-            break
-    prod_col = _find_col(headers1, ["productivity", "prod"])
-    fcr_col = _find_col(headers1, ["fcr", "first call resolution"])
-    
-    # Find Table 2 header
-    table2_header = -1
-    for i in range(table1_header + 1, len(rows)):
-        joined = " ".join(rows[i]).lower()
-        if "agent" in joined and ("aht" in joined or "genesys" in joined):
-            table2_header = i
-            break
-    
-    # Parse Table 1
-    member_map: dict[str, dict[str, Any]] = {}
-    csat_vals: list[float] = []
-    prod_vals: list[float] = []
-    fcr_vals: list[float] = []
-    
-    skip_names = {"team score", "average", "total", "floor", ""}
-    data1_end = table2_header if table2_header != -1 else len(rows)
-    
-    for i in range(table1_header + 1, data1_end):
-        row = rows[i] if i < len(rows) else []
-        if len(row) < 2:
+    rows = parse_csv(csv_text)
+
+    if not rows:
+        raise ValidationError("No rows in KSCAT Calc CSV", {"row_count": 0})
+
+    # Extract only rows 1-15, columns P-X (indices 15-23)
+    # In CSV, row indices are 0-based, so rows 0-14 = rows 1-15 in sheet
+    p_col = 15  # Column P (0-based)
+    x_col = 23  # Column X (0-based)
+    col_count = x_col - p_col + 1  # 9 columns
+
+    raw_range: list[list[str]] = []
+    for i in range(min(15, len(rows))):
+        row = rows[i]
+        px = row[p_col:x_col + 1] if len(row) > x_col else (
+            row[p_col:] + [""] * (col_count - max(0, len(row) - p_col))
+            if len(row) > p_col else [""] * col_count
+        )
+        raw_range.append(px)
+
+    if len(raw_range) < 2:
+        raise ValidationError(
+            "KSCAT Calc range P1:X15 has too few rows",
+            {"rows_extracted": len(raw_range)}
+        )
+
+    # Row 1 = header (index 0)
+    headers = raw_range[0]
+    # Expected: Agent, CSAT, KSCAT, DSAT, Total count, Total without Karma, KSCAT, CSAT, Variance between CSAT and KSCAT
+    print(f"[kscat_parser] KSCAT Calc headers (P1:X1): {headers}")
+
+    # Parse agent rows (2-14) and team score row (15)
+    agents: list[dict[str, Any]] = []
+    team_score: dict[str, Any] | None = None
+
+    for i in range(1, len(raw_range)):
+        row = raw_range[i]
+        if not row or not row[0]:
             continue
-        email = row[email1_col] if email1_col != -1 and email1_col < len(row) else ""
-        if not email or email.lower().strip() in skip_names:
-            continue
-        
-        name = name_map.get(email.lower(), "")
-        if not name:
-            name = email.split("@")[0].replace(".", " ").replace("_", " ").strip()
-            name = re.sub(r'\s+\d+$', '', name).title()
-        
-        csat = parse_percent(row[csat_pct_col]) if csat_pct_col != -1 and csat_pct_col < len(row) else None
-        productivity = parse_num(row[prod_col]) if prod_col != -1 and prod_col < len(row) else None
-        fcr = parse_percent(row[fcr_col]) if fcr_col != -1 and fcr_col < len(row) else None
-        
-        key = email.lower()
-        member_map[key] = {"name": name, "email": email, "csat": csat, "productivity": productivity, "fcr": fcr}
-        if csat is not None:
-            csat_vals.append(csat)
-        if productivity is not None:
-            prod_vals.append(productivity)
-        if fcr is not None:
-            fcr_vals.append(fcr)
-    
-    # Parse Table 2 (AHT)
-    aht_vals: list[float] = []
-    if table2_header != -1 and table2_header < len(rows):
-        headers2 = rows[table2_header]
-        email2_col = _find_col(headers2, ["agent's email", "agent email", "email"])
-        aht_col = _find_col(headers2, ["genesys inbound aht", "aht", "average handling time"])
-        
-        for i in range(table2_header + 1, len(rows)):
-            row = rows[i] if i < len(rows) else []
-            if len(row) < 2:
-                continue
-            email = row[email2_col] if email2_col != -1 and email2_col < len(row) else ""
-            if not email or email.lower().strip() in skip_names:
-                continue
-            aht = parse_time_to_minutes(row[aht_col]) if aht_col != -1 and aht_col < len(row) else None
-            # Also check for Chat AHT in "Average handling time"
-            chat_aht_col = _find_col(headers2, ["average handling time"])
-            chat_aht = parse_num(row[chat_aht_col]) if chat_aht_col != -1 and chat_aht_col < len(row) else None
-            
-            key = email.lower()
-            if key in member_map:
-                if aht is not None:
-                    member_map[key]["genesysAht"] = aht
-                    aht_vals.append(aht)
-                if chat_aht is not None:
-                    member_map[key]["chatAht"] = chat_aht
-                    if aht is None:
-                        member_map[key]["aht"] = chat_aht
-                        aht_vals.append(chat_aht)
-            else:
-                name = name_map.get(key, email.split("@")[0].replace(".", " ").replace("_", " ").strip())
-                name = re.sub(r'\s+\d+$', '', name).title()
-                member_map[key] = {"name": name, "email": email, "csat": None, "productivity": None, "fcr": None, "aht": chat_aht}
-    
-    # Build output
-    members: list[dict[str, Any]] = []
-    for key, d in member_map.items():
-        aht = d.get("aht")
-        scores = [v for v in [d.get("csat"), d.get("productivity"), d.get("fcr")] if v is not None]
-        overall = round(sum(scores) / len(scores), 1) if scores else None
-        members.append({
-            "name": d["name"], "email": d.get("email", ""),
-            "csat": d.get("csat"), "productivity": d.get("productivity"),
-            "fcr": d.get("fcr"), "aht": aht,
-            "chatAht": d.get("chatAht"), "genesysAht": d.get("genesysAht"),
-            "overallScore": overall,
-        })
-    
-    def avg(vals: list[float]) -> float:
-        return round(sum(vals) / len(vals), 1) if vals else 0
-    
-    floor_avg = {
-        "csat": avg(csat_vals),
-        "productivity": avg(prod_vals),
-        "fcr": avg(fcr_vals),
-        "aht": avg(aht_vals),
-    }
-    
-    members.sort(key=lambda m: m.get("overallScore") or 0, reverse=True)
-    
-    # Detect month label
-    month_label = ""
-    for i in range(min(5, len(rows))):
-        text = " ".join(rows[i])
-        m = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{4}", text, re.I)
-        if m:
-            month_label = m.group(0)
-            break
-    
+
+        agent_val = row[0].strip()
+        csat_count = parse_num(row[1]) if len(row) > 1 else None
+        kscat_count = parse_num(row[2]) if len(row) > 2 else None
+        dsat_count = parse_num(row[3]) if len(row) > 3 else None
+        total_count = parse_num(row[4]) if len(row) > 4 else None
+        total_without_karma = parse_num(row[5]) if len(row) > 5 else None
+        kscat_pct = parse_percent(row[6]) if len(row) > 6 else None
+        csat_pct = parse_percent(row[7]) if len(row) > 7 else None
+        variance = parse_percent(row[8]) if len(row) > 8 else None
+
+        record = {
+            "agent": agent_val,
+            "csat_count": csat_count,
+            "kscat_count": kscat_count,
+            "dsat_count": dsat_count,
+            "total_count": total_count,
+            "total_without_karma": total_without_karma,
+            "kscat_pct": kscat_pct,
+            "csat_pct": csat_pct,
+            "variance": variance,
+        }
+
+        if agent_val.lower() in ("team score", "team", "total"):
+            team_score = record
+        else:
+            agents.append(record)
+
     return {
-        "members": members,
+        "agents": agents,
+        "team_score": team_score,
+        "headers": headers,
+        "raw_range": raw_range,
         "fetchedAt": datetime.utcnow().isoformat() + "Z",
-        "monthLabel": month_label,
-        "floorAvg": floor_avg,
         "_meta": {
-            "format": "horizontal",
-            "total_rows_raw": len(rows),
-            "members_found": len(members),
-            "source": "Tab0",
+            "source": "KSCAT Calc",
+            "gid": "758073782",
+            "range": "P1:X15",
+            "rows_extracted": len(raw_range),
+            "agents_found": len(agents),
         },
     }
 
 
-def _find_col(headers: list[str], keywords: list[str]) -> int:
-    """Find a column by any of several keywords. Case-insensitive partial match."""
-    for keyword in keywords:
-        kw = keyword.lower()
-        for i, h in enumerate(headers):
-            if kw in h.lower():
-                return i
-    return -1
-
-
-# ── Main Validator ────────────────────────────────────────────────────────────────
+# ── Legacy compatibility (used by fetch_team_data.py --csv/--tsv test modes) ─────
 
 def validate_team_data(rows: list[list[str]], name_map: dict[str, str] | None = None) -> dict[str, Any]:
     """
-    Validate extracted rows and produce the team data structure.
-    Auto-detects Sheet19 (vertical) or Tab 0 (horizontal) format.
+    Legacy compatibility: parse rows from Team Scores horizontal format.
+    Used by --csv/--tsv test modes.
     """
-    if not rows:
-        raise ValidationError("No rows to validate", {"row_count": 0})
-    
-    # Check for login/redirect contamination
-    full_text = " ".join(" ".join(r) for r in rows[:10]).lower()
-    login_indicators = ["sign in", "sign-in", "log in", "login", "accounts.google.com",
-                        "authenticate", "access denied", "forbidden", "not authorized"]
-    for indicator in login_indicators:
-        if indicator in full_text:
-            raise ValidationError(
-                "Data appears to be a login/redirect page, not spreadsheet data",
-                {"indicator": indicator, "preview": full_text[:200]})
-    
-    # Detect format and parse accordingly
-    fmt = _detect_format(rows)
-    
-    if fmt == "vertical":
-        return _parse_vertical(rows, name_map)
-    else:
-        return _parse_horizontal(rows, name_map)
+    # Reconstruct CSV text from rows and delegate to parse_team_scores
+    import io, csv
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for row in rows:
+        writer.writerow(row)
+    return parse_team_scores(buf.getvalue())
