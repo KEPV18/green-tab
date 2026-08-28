@@ -175,6 +175,8 @@ def _parse_vertical(rows: list[list[str]], name_map: dict[str, str] | None = Non
         "basket touched tickets": "basketTouchedTickets",
         "csat adjusted - total scores": "csatRawScore",
         "closed tickets": "closedTickets",
+        "break exceed": "breakExceed",
+        "idle time": "idleTime",
     }
     
     # Collect per-agent metrics

@@ -227,6 +227,8 @@ def upsert_team_data(team_data: dict[str, Any], month: str = "") -> dict[str, An
             (m.get("irt2Replier"), "irt_replier"),
             (m.get("shrinkage"), "shrinkage"),
             (m.get("utilization"), "utilization"),
+            (m.get("breakExceed"), "break_exceed"),
+            (m.get("idleTime"), "idle_time"),
         ]:
             if field is not None:
                 record[key] = field
