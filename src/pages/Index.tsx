@@ -1235,9 +1235,9 @@ const Index = () => {
               />
               <PercentageDisplay
                 title="CSAT"
-                percentage={mySheetRow && mySheetRow.csat !== null ? mySheetRow.csat : csat}
-                subtitle={mySheetRow && mySheetRow.csat !== null ? `${mySheetRow.csat.toFixed(1)}% from Sheet` : `${totalGood} / ${totalSurveys}`}
-                floorInfo={mySheetRow && mySheetRow.csat !== null ? formatFloorAvg({ yourValue: mySheetRow.csat, floorAvg: mySheetRow.floorAvgCsat, diff: mySheetRow.csat - mySheetRow.floorAvgCsat, status: mySheetRow.csat >= mySheetRow.floorAvgCsat ? "above" : "below" }) : (floorAverages ? formatFloorAvg(floorAverages.csat) : undefined)}
+                percentage={mySheetRow && mySheetRow.csat != null ? mySheetRow.csat : csat}
+                subtitle={mySheetRow && mySheetRow.csat != null ? `${mySheetRow.csat.toFixed(1)}% from Sheet` : `${totalGood} / ${totalSurveys}`}
+                floorInfo={mySheetRow && mySheetRow.csat != null ? formatFloorAvg({ yourValue: mySheetRow.csat, floorAvg: mySheetRow.floorAvgCsat, diff: mySheetRow.csat - mySheetRow.floorAvgCsat, status: mySheetRow.csat >= mySheetRow.floorAvgCsat ? "above" : "below" }) : (floorAverages ? formatFloorAvg(floorAverages.csat) : undefined)}
               />
             </div>
 
@@ -1253,121 +1253,121 @@ const Index = () => {
                 <div className="grid grid-cols-4 gap-2">
                   <MetricCard
                     title="CSAT"
-                    value={mySheetRow.csat !== null ? Number(mySheetRow.csat.toFixed(1)) : 0}
+                    value={mySheetRow.csat != null ? Number(mySheetRow.csat.toFixed(1)) : 0}
                     color="primary"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.csat !== null ? `Floor: ${mySheetRow.floorAvgCsat}%` : undefined}
+                    subtitle={mySheetRow.csat != null ? `Floor: ${mySheetRow.floorAvgCsat}%` : undefined}
                   />
                   <MetricCard
                     title="Productivity"
-                    value={mySheetRow.productivity !== null ? Number(mySheetRow.productivity.toFixed(1)) : 0}
+                    value={mySheetRow.productivity != null ? Number(mySheetRow.productivity.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.productivity !== null ? `Floor: ${mySheetRow.floorAvgProductivity}%` : undefined}
+                    subtitle={mySheetRow.productivity != null ? `Floor: ${mySheetRow.floorAvgProductivity}%` : undefined}
                   />
                   <MetricCard
                     title="Escalation"
-                    value={mySheetRow.escalationRate !== null ? Number(mySheetRow.escalationRate.toFixed(1)) : 0}
+                    value={mySheetRow.escalationRate != null ? Number(mySheetRow.escalationRate.toFixed(1)) : 0}
                     color="destructive"
                     icon={ThumbsDown}
                     showButtons={false}
-                    subtitle={mySheetRow.escalationRate !== null ? `Floor: ${mySheetRow.floorAvgEscalationRate}%` : undefined}
+                    subtitle={mySheetRow.escalationRate != null ? `Floor: ${mySheetRow.floorAvgEscalationRate}%` : undefined}
                   />
                   <MetricCard
                     title="Adherence"
-                    value={mySheetRow.adherence !== null ? Number(mySheetRow.adherence.toFixed(1)) : 0}
+                    value={mySheetRow.adherence != null ? Number(mySheetRow.adherence.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.adherence !== null ? `Floor: ${mySheetRow.floorAvgAdherence}%` : undefined}
+                    subtitle={mySheetRow.adherence != null ? `Floor: ${mySheetRow.floorAvgAdherence}%` : undefined}
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   <MetricCard
                     title="ABT"
-                    value={mySheetRow.aht !== null ? Number(mySheetRow.aht.toFixed(1)) : 0}
+                    value={mySheetRow.aht != null ? Number(mySheetRow.aht.toFixed(1)) : 0}
                     color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.aht !== null ? `Floor: ${mySheetRow.floorAvgAht}s` : undefined}
+                    subtitle={mySheetRow.aht != null ? `Floor: ${mySheetRow.floorAvgAht}s` : undefined}
                   />
                   <MetricCard
                     title="IRT"
-                    value={mySheetRow.irtReplier !== null ? Number(mySheetRow.irtReplier.toFixed(1)) : 0}
+                    value={mySheetRow.irtReplier != null ? Number(mySheetRow.irtReplier.toFixed(1)) : 0}
                     color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.irtReplier !== null ? `Floor: ${mySheetRow.floorAvgIrtReplier}` : undefined}
+                    subtitle={mySheetRow.irtReplier != null ? `Floor: ${mySheetRow.floorAvgIrtReplier}` : undefined}
                   />
                   <MetricCard
                     title="FCR"
-                    value={mySheetRow.fcr !== null ? Number(mySheetRow.fcr.toFixed(1)) : 0}
+                    value={mySheetRow.fcr != null ? Number(mySheetRow.fcr.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.fcr !== null ? `Floor: ${mySheetRow.floorAvgFcr}%` : undefined}
+                    subtitle={mySheetRow.fcr != null ? `Floor: ${mySheetRow.floorAvgFcr}%` : undefined}
                   />
                   <MetricCard
                     title="Closed After Res."
-                    value={mySheetRow.closedAfterResolution !== null ? Number(mySheetRow.closedAfterResolution.toFixed(1)) : 0}
+                    value={mySheetRow.closedAfterResolution != null ? Number(mySheetRow.closedAfterResolution.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.closedAfterResolution !== null ? `Floor: ${mySheetRow.floorAvgClosedAfterResolution}%` : undefined}
+                    subtitle={mySheetRow.closedAfterResolution != null ? `Floor: ${mySheetRow.floorAvgClosedAfterResolution}%` : undefined}
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   <MetricCard
                     title="Break Exceed"
-                    value={mySheetRow.breakExceed !== null ? Number(mySheetRow.breakExceed.toFixed(1)) : 0}
+                    value={mySheetRow.breakExceed != null ? Number(mySheetRow.breakExceed.toFixed(1)) : 0}
                     color="destructive"
                     icon={ThumbsDown}
                     showButtons={false}
-                    subtitle={mySheetRow.breakExceed !== null ? `Floor: ${mySheetRow.floorAvgBreakExceed}` : undefined}
+                    subtitle={mySheetRow.breakExceed != null ? `Floor: ${mySheetRow.floorAvgBreakExceed}` : undefined}
                   />
                   <MetricCard
                     title="Idle Time"
-                    value={mySheetRow.idleTime !== null ? Number(mySheetRow.idleTime.toFixed(1)) : 0}
+                    value={mySheetRow.idleTime != null ? Number(mySheetRow.idleTime.toFixed(1)) : 0}
                     color="destructive"
                     icon={ThumbsDown}
                     showButtons={false}
-                    subtitle={mySheetRow.idleTime !== null ? `Floor: ${mySheetRow.floorAvgIdleTime}` : undefined}
+                    subtitle={mySheetRow.idleTime != null ? `Floor: ${mySheetRow.floorAvgIdleTime}` : undefined}
                   />
                   <MetricCard
                     title="De-escalation"
-                    value={mySheetRow.deescalationRate !== null ? Number(mySheetRow.deescalationRate.toFixed(1)) : 0}
+                    value={mySheetRow.deescalationRate != null ? Number(mySheetRow.deescalationRate.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.deescalationRate !== null ? `Floor: ${mySheetRow.floorAvgDeescalationRate}%` : undefined}
+                    subtitle={mySheetRow.deescalationRate != null ? `Floor: ${mySheetRow.floorAvgDeescalationRate}%` : undefined}
                   />
                   <MetricCard
                     title="Occupancy"
-                    value={mySheetRow.occupancy !== null ? Number(mySheetRow.occupancy.toFixed(1)) : 0}
+                    value={mySheetRow.occupancy != null ? Number(mySheetRow.occupancy.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.occupancy !== null ? `Floor: ${mySheetRow.floorAvgOccupancy}%` : undefined}
+                    subtitle={mySheetRow.occupancy != null ? `Floor: ${mySheetRow.floorAvgOccupancy}%` : undefined}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <MetricCard
                     title="Avg Group Basket Time"
-                    value={mySheetRow.avgGroupBasketTime !== null ? Number(mySheetRow.avgGroupBasketTime.toFixed(1)) : 0}
+                    value={mySheetRow.avgGroupBasketTime != null ? Number(mySheetRow.avgGroupBasketTime.toFixed(1)) : 0}
                     color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.avgGroupBasketTime !== null ? `Floor: ${mySheetRow.floorAvgAvgGroupBasketTime}s` : undefined}
+                    subtitle={mySheetRow.avgGroupBasketTime != null ? `Floor: ${mySheetRow.floorAvgAvgGroupBasketTime}s` : undefined}
                   />
                   <MetricCard
                     title="Closed Tickets %"
-                    value={mySheetRow.closeRate !== null ? Number(mySheetRow.closeRate.toFixed(1)) : 0}
+                    value={mySheetRow.closeRate != null ? Number(mySheetRow.closeRate.toFixed(1)) : 0}
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.closeRate !== null ? `Floor: ${mySheetRow.floorAvgCloseRate}%` : undefined}
+                    subtitle={mySheetRow.closeRate != null ? `Floor: ${mySheetRow.floorAvgCloseRate}%` : undefined}
                   />
                 </div>
               </div>

@@ -67,8 +67,8 @@ export interface TeamMemberRow {
   irtReplier: number | null;       // IRT 2 Replier (lower is better)
   fcr: number | null;              // FCR %
   closedAfterResolution: number | null; // Closed After Resolution %
-  breakExceed: number | null;      // Break Exceed (lower is better)
-  idleTime: number | null;          // Idle Time (lower is better)
+  breakExceed: number | null | undefined;      // Break Exceed (lower is better)
+  idleTime: number | null | undefined;          // Idle Time (lower is better)
   deescalationRate: number | null;  // De-escalation Rate %
   occupancy: number | null;        // Occupancy daily %
   avgGroupBasketTime: number | null; // Average Group Basket Time (lower is better)
@@ -193,8 +193,8 @@ interface SupabaseTeamMetric {
   irt_replier: number | null;
   shrinkage: number | null;
   utilization: number | null;
-  break_exceed: number | null;
-  idle_time: number | null;
+  break_exceed: number | null | undefined;
+  idle_time: number | null | undefined;
   source: string;
   fetched_at: string;
   created_at: string;
@@ -214,7 +214,7 @@ interface CachedTeamData {
 // ─── Helper: compute floor average of non-null values ──────────────────────────
 
 function computeFloorAvg(values: (number | null)[]): number {
-  const valid = values.filter((v): v is number => v !== null);
+  const valid = values.filter((v): v is number => v != null);
   return valid.length > 0 ? Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10 : 0;
 }
 
@@ -222,10 +222,10 @@ function computeFloorAvg(values: (number | null)[]): number {
 
 function assignCsatRanks(members: TeamMemberRow[]): void {
   const sorted = [...members]
-    .filter((m) => m.csat !== null)
+    .filter((m) => m.csat != null)
     .sort((a, b) => (b.csat ?? 0) - (a.csat ?? 0)); // highest CSAT first
   for (const m of members) {
-    if (m.csat === null) {
+    if (m.csat == null) {
       m.rankCsat = null;
     } else {
       m.rankCsat = sorted.findIndex((s) => s.email === m.email) + 1;

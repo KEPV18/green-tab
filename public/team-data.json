@@ -6,7 +6,7 @@
       "csat": 67.0,
       "productivity": 58.1,
       "fcr": 51.9,
-      "aht": 7.9,
+      "aht": 2.4,
       "chatAht": 2.4,
       "genesysAht": null,
       "overallScore": 59.0
@@ -28,40 +28,51 @@
       "csat": 57.0,
       "productivity": 40.9,
       "fcr": 54.9,
-      "aht": 13.4,
+      "aht": 3.8,
       "chatAht": 3.8,
       "genesysAht": null,
       "overallScore": 50.9
     },
     {
-      "name": "Omar Fathy",
+      "name": "Omar Allaa",
       "email": "omar.allaa@tabby.ai",
       "csat": 64.0,
       "productivity": 31.2,
       "fcr": 49.0,
-      "aht": 12.9,
+      "aht": 4.0,
       "chatAht": 4.0,
       "genesysAht": null,
       "overallScore": 48.1
     },
     {
-      "name": "Yousef Bekhet",
+      "name": "Abdallah Abdallah",
+      "email": "abdallah.abdallah@tabby.ai",
+      "csat": 60.0,
+      "productivity": 34.5,
+      "fcr": 48.0,
+      "aht": 4.0,
+      "chatAht": 4.0,
+      "genesysAht": null,
+      "overallScore": 47.5
+    },
+    {
+      "name": "Youssef Shenoda",
       "email": "youssef.shenoda@tabby.ai",
       "csat": 54.0,
       "productivity": 38.4,
       "fcr": 43.9,
-      "aht": 12.6,
+      "aht": 4.1,
       "chatAht": 4.1,
       "genesysAht": null,
       "overallScore": 45.4
     },
     {
-      "name": "Ahmed Ali",
+      "name": "Ahmed Gelal",
       "email": "ahmed.gelal@tabby.ai",
       "csat": 52.0,
       "productivity": 27.7,
       "fcr": 52.0,
-      "aht": 15.4,
+      "aht": 4.8,
       "chatAht": 4.8,
       "genesysAht": null,
       "overallScore": 43.9
@@ -72,7 +83,7 @@
       "csat": 66.0,
       "productivity": 21.8,
       "fcr": 39.0,
-      "aht": 13.8,
+      "aht": 3.8,
       "chatAht": 3.8,
       "genesysAht": null,
       "overallScore": 42.3
@@ -83,35 +94,24 @@
       "csat": 50.0,
       "productivity": 30.1,
       "fcr": 42.9,
-      "aht": 15.0,
+      "aht": 4.4,
       "chatAht": 4.4,
       "genesysAht": null,
       "overallScore": 41.0
     },
     {
-      "name": "Mohamed Ahmed",
+      "name": "Mohamed Hanafy",
       "email": "mohamed.hanafy@tabby.ai",
       "csat": 0.0,
       "productivity": null,
       "fcr": 50.0,
-      "aht": 16.9,
+      "aht": 10.8,
       "chatAht": 10.8,
       "genesysAht": null,
       "overallScore": 25.0
     },
     {
-      "name": "Abdallah Abdallah",
-      "email": "abdallah.abdallah@tabby.ai",
-      "csat": null,
-      "productivity": null,
-      "fcr": null,
-      "aht": null,
-      "chatAht": null,
-      "genesysAht": null,
-      "overallScore": null
-    },
-    {
-      "name": "Abdullah Riad",
+      "name": "Abdullah Mohamed",
       "email": "abdullah.mohamed@tabby.ai",
       "csat": null,
       "productivity": null,
@@ -122,12 +122,12 @@
       "overallScore": null
     },
     {
-      "name": "Ahmed Elkhodary",
+      "name": "Ahmed Radwan",
       "email": "ahmed.radwan@tabby.ai",
       "csat": null,
       "productivity": null,
       "fcr": 0.0,
-      "aht": 9.4,
+      "aht": 6.6,
       "chatAht": 6.6,
       "genesysAht": null,
       "overallScore": 0.0
@@ -144,12 +144,12 @@
       "overallScore": null
     }
   ],
-  "fetchedAt": "2026-08-27T14:27:17.752735+00:00",
+  "fetchedAt": "2026-08-28T06:02:38.046627Z",
   "monthLabel": "August 2026",
   "floorAvg": {
-    "csat": 51.9,
-    "productivity": 35.5,
-    "fcr": 43.2,
-    "aht": 11.7
+    "csat": 52.7,
+    "productivity": 35.3,
+    "fcr": 43.6,
+    "aht": 4.4
   }
 }
