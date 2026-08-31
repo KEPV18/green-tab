@@ -72,11 +72,18 @@ export async function fetchMonthlyPayrollData(userId: string, year: number, mont
   // CSAT score from good/bad
   const totalGood = (perfData.good || 0) + (perfData.genesysGood || 0);
   const totalBad = (perfData.bad || 0) + (perfData.genesysBad || 0);
+  const karmaBad = perfData.karmaBad || 0;
   const totalSamples = totalGood + totalBad;
   if (totalSamples > 0) {
     const csatPct = (totalGood / totalSamples) * 100;
     csatScore = csatPct >= 93 ? 100 : csatPct >= 90 ? 75 : csatPct >= 87 ? 50 : 0;
   }
+
+  // Karma gate: KPI is 0 if karma < 73%
+  const KARMA_THRESHOLD = 73;
+  const karmaBase = totalGood + totalBad + karmaBad;
+  const karmaPct = karmaBase > 0 ? (totalGood / karmaBase) * 100 : 0;
+  const karmaGate = karmaPct >= KARMA_THRESHOLD ? 1 : 0;
 
   // Absence counts from shifts
   let casualCount = 0;
@@ -107,7 +114,8 @@ export async function fetchMonthlyPayrollData(userId: string, year: number, mont
 
   const totalAbsence = casualCount + sickCount + annualCount + noShowCount;
   const gate = totalAbsence <= 1 ? 100 : totalAbsence === 2 ? 75 : 0;
-  const finalPercentage = ((prodScore * 0.5 + csatScore * 0.5) * gate) / 100;
+  const rawPercentage = ((prodScore * 0.5 + csatScore * 0.5) * gate) / 100;
+  const finalPercentage = karmaGate === 0 ? 0 : rawPercentage;
 
   return {
     kpiScore: finalPercentage,

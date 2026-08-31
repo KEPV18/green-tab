@@ -16,6 +16,7 @@ interface PhoneBonusKPIProps {
   selectedYear: number;
   csatPercentage: number;
   totalSurveys?: number;
+  karmaPercentage?: number;  // Karma % — KPI is 0 if karma < 73%
 }
 
 const getProductivityScore = (avg: number) => {
@@ -60,7 +61,7 @@ const getBadgeVariant = (score: number): "default" | "secondary" | "destructive"
 
 const SHIFT_PREFIX = "gt_shifts_";
 
-export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercentage, totalSurveys = 0 }: PhoneBonusKPIProps) => {
+export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercentage, totalSurveys = 0, karmaPercentage = 0 }: PhoneBonusKPIProps) => {
   const [totalCalls, setTotalCalls] = useState(0);
   const [recordedDays, setRecordedDays] = useState(0);
   const [absenceDays, setAbsenceDays] = useState(0);
@@ -149,10 +150,14 @@ export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercent
   const csatScore = useMemo(() => getCsatScore(effectiveCsat), [effectiveCsat]);
   const absenceGate = useMemo(() => getAbsenceGate(absenceDays), [absenceDays]);
 
+  // Karma gate: KPI is 0 if karma < 73%
+  const KARMA_THRESHOLD = 73;
+  const karmaGate = karmaPercentage >= KARMA_THRESHOLD ? 1 : 0;
+
   const finalBonus = useMemo(() => {
     const base = (productivityScore * 0.5) + (csatScore * 0.5);
-    return (base * absenceGate) / 100;
-  }, [productivityScore, csatScore, absenceGate]);
+    return karmaGate === 0 ? 0 : (base * absenceGate) / 100;
+  }, [productivityScore, csatScore, absenceGate, karmaGate]);
 
   const saveManualProductivity = () => {
     const val = parseFloat(manualInput);
@@ -363,21 +368,53 @@ export const PhoneBonusKPI = ({ userId, selectedMonth, selectedYear, csatPercent
           </div>
         </div>
 
+        {/* Karma Gate */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">🔒 Karma Gate</span>
+              <Badge variant="outline" className="text-xs">Required ≥ {KARMA_THRESHOLD}%</Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {karmaPercentage.toFixed(1)}% karma
+              </span>
+              <span className={`font-bold ${karmaGate === 1 ? 'text-green-500' : 'text-destructive'}`}>
+                {karmaGate === 1 ? '✓ PASS' : `✗ < ${KARMA_THRESHOLD}%`}
+              </span>
+            </div>
+          </div>
+          <div className="relative">
+            <Progress value={karmaPercentage} className="h-3" />
+            <div className={`absolute inset-0 h-3 rounded-full ${karmaPercentage >= KARMA_THRESHOLD ? 'bg-green-500' : 'bg-destructive'} opacity-80 transition-all`}
+              style={{ width: `${Math.min(karmaPercentage, 100)}%` }} />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>{`< ${KARMA_THRESHOLD}%: KPI = 0`}</span>
+            <span>{`≥ ${KARMA_THRESHOLD}%: KPI unlocked`}</span>
+          </div>
+        </div>
+
         {/* Final Result */}
         <div className="border-t border-border pt-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-muted-foreground">
-              Final = (Productivity×50% + CSAT×50%) × Absence Gate
+              Final = (Productivity×50% + CSAT×50%) × Absence × Karma Gate
             </span>
           </div>
           <div className="flex items-center justify-between mt-2">
             <span className="text-xs text-muted-foreground">
-              ({productivityScore}×50% + {csatScore}×50%) × {absenceGate}%
+              ({productivityScore}×50% + {csatScore}×50%) × {absenceGate}% × (karma{karmaPercentage.toFixed(0)}% {karmaGate === 1 ? '✓' : '✗'})
             </span>
             <span className={`text-3xl font-bold ${getScoreColor(finalBonus)}`}>
               {finalBonus.toFixed(0)}%
             </span>
           </div>
+          {karmaGate === 0 && (
+            <p className="text-xs text-destructive mt-2">
+              🔒 KPI locked — reach {KARMA_THRESHOLD}% karma to unlock
+            </p>
+          )}
         </div>
 
         {/* KPI Payout */}

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { signUp, signIn, getSession } from "@/lib/store";
+import { signUp, signIn, getCurrentSession } from "@/lib/supabaseAuth";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { z } from "zod";
 
@@ -30,10 +30,11 @@ const Auth = () => {
 
   // Check for existing session on mount — redirect if already logged in
   useEffect(() => {
-    const session = getSession();
-    if (session) {
-      navigate("/", { replace: true });
-    }
+    getCurrentSession().then((result) => {
+      if (result?.user) {
+        navigate("/", { replace: true });
+      }
+    });
   }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -52,16 +53,10 @@ const Auth = () => {
     setIsLoading(true);
 
     try {
-      const result = signIn(loginEmail, loginPassword);
+      const result = await signIn(loginEmail, loginPassword);
 
       if (result.error) {
-        if (result.error === "User not found") {
-          toast.error("Invalid login credentials");
-        } else if (result.error === "Invalid password") {
-          toast.error("Invalid login credentials");
-        } else {
-          toast.error(result.error);
-        }
+        toast.error(result.error);
         return;
       }
 
@@ -91,19 +86,24 @@ const Auth = () => {
     setIsLoading(true);
 
     try {
-      const result = signUp(signupEmail, signupPassword, signupUsername);
+      const result = await signUp(signupEmail, signupPassword, signupUsername);
 
       if (result.error) {
-        if (result.error === "User already exists") {
-          toast.error("This email is already registered");
-        } else {
-          toast.error(result.error);
-        }
+        toast.error(result.error);
         return;
       }
 
-      toast.success("Account created successfully! 🎉");
-      navigate("/");
+      if (!result.session) {
+        // Email confirmation required
+        toast.success("Account created! Please check your email to confirm, then log in.");
+      } else {
+        toast.success("Account created successfully! 🎉");
+      }
+
+      // If we got a session, redirect immediately
+      if (result.session) {
+        navigate("/");
+      }
     } catch {
       toast.error("An error occurred while creating the account");
     } finally {

@@ -66,11 +66,11 @@ export const DailyTarget = ({
     const totalKarmaBase = currentGood + totalNegatives + karmaBad;
     const currentKarma = totalKarmaBase > 0 ? (currentGood / totalKarmaBase) * 100 : 0;
     
-    // Calculate for each level (88%, 90%, 92%)
+    // Calculate for each level: 75% → 80% → 88% (88 is the highest achievable)
     const levels: LevelTarget[] = [
-      { level: 1, percentage: 88, label: "Level 1", icon: <Target className="h-4 w-4" />, needed: 0, dailyTarget: 0 },
-      { level: 2, percentage: 90, label: "Level 2", icon: <Star className="h-4 w-4" />, needed: 0, dailyTarget: 0 },
-      { level: 3, percentage: 92, label: "Expert", icon: <Trophy className="h-4 w-4" />, needed: 0, dailyTarget: 0 },
+      { level: 1, percentage: 75, label: "Level 1", icon: <Target className="h-4 w-4" />, needed: 0, dailyTarget: 0 },
+      { level: 2, percentage: 80, label: "Level 2", icon: <Star className="h-4 w-4" />, needed: 0, dailyTarget: 0 },
+      { level: 3, percentage: 88, label: "Expert", icon: <Trophy className="h-4 w-4" />, needed: 0, dailyTarget: 0 },
     ];
     
     levels.forEach((level) => {
@@ -84,11 +84,11 @@ export const DailyTarget = ({
     
     // Find current level
     let currentLevel = 0;
-    if (currentKarma >= 92) currentLevel = 3;
-    else if (currentKarma >= 90) currentLevel = 2;
-    else if (currentKarma >= 88) currentLevel = 1;
+    if (currentKarma >= 88) currentLevel = 3;
+    else if (currentKarma >= 80) currentLevel = 2;
+    else if (currentKarma >= 75) currentLevel = 1;
     
-    // Today's progress based on level 1 target (88%)
+    // Today's progress based on level 1 target (75%)
     const todayProgress = levels[0].dailyTarget > 0 
       ? Math.min(100, (todayGood / levels[0].dailyTarget) * 100) 
       : 100;
@@ -259,7 +259,7 @@ export const DailyTarget = ({
       {/* Today's Progress for Level 1 */}
       <div className="mb-6 p-4 bg-background rounded-lg border border-border">
         <div className="flex justify-between text-sm mb-2">
-          <span className="font-medium text-foreground">Today's Progress (88% Target)</span>
+          <span className="font-medium text-foreground">Today's Progress (75% Target)</span>
           <span className={`font-medium ${isCompleted ? 'text-success' : 'text-foreground'}`}>
             {Math.round(todayProgress)}%
           </span>

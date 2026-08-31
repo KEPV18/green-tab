@@ -1,53 +1,50 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from "react";
-import { getSession, signOut as signOutLocal, LocalUser, getUserById } from "@/lib/store";
+import {
+  AuthUser,
+  getCurrentSession,
+  onAuthStateChange,
+  signOutUser,
+} from "@/lib/supabaseAuth";
+import { Session } from "@supabase/supabase-js";
 
 interface AuthContextType {
-  user: LocalUser | null;
-  session: { userId: string } | null;
+  user: AuthUser | null;
+  session: Session | null;
   isLoading: boolean;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<LocalUser | null>(null);
-  const [session, setSession] = useState<{ userId: string } | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     // Check for existing session on mount
-    const existingSession = getSession();
-    if (existingSession) {
-      const localUser = getUserById(existingSession.userId);
-      setSession({ userId: existingSession.userId });
-      setUser(localUser);
-    }
-    setIsLoading(false);
-  }, []);
-
-  // Listen for storage events to sync auth state across tabs
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key?.startsWith("gt_") || e.key === null) {
-        const existingSession = getSession();
-        if (existingSession) {
-          const localUser = getUserById(existingSession.userId);
-          setSession({ userId: existingSession.userId });
-          setUser(localUser);
-        } else {
-          setSession(null);
-          setUser(null);
-        }
+    getCurrentSession().then((result) => {
+      if (result?.user) {
+        setUser(result.user);
+        setSession(result.session);
       }
-    };
+      setIsLoading(false);
+    });
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    // Listen for auth state changes (Supabase or localStorage)
+    const unsubscribe = onAuthStateChange((authUser, authSession) => {
+      setUser(authUser);
+      setSession(authSession);
+      setIsLoading(false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
-  const handleSignOut = () => {
-    signOutLocal();
+  const handleSignOut = async () => {
+    await signOutUser();
     setUser(null);
     setSession(null);
   };
