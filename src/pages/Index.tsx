@@ -22,6 +22,7 @@ import { GenesysTicketForm } from "@/components/GenesysTicketForm";
 import { DailyTarget } from "@/components/DailyTarget";
 import { SmartRatingDialog } from "@/components/SmartRatingDialog";
 import { HoldTicketsSection } from "@/components/HoldTicketsSection";
+import { BonusCard } from "@/components/BonusCard";
 import { DailyNotesSection } from "@/components/DailyNotesSection";
 import { BreakScheduler } from "@/components/BreakScheduler";
 import { TodayShiftCard } from "@/components/TodayShiftCard";
@@ -1271,6 +1272,19 @@ const Index = () => {
                 floorInfo={effectiveSheetRow && effectiveSheetRow.csat != null ? formatFloorAvg({ yourValue: effectiveSheetRow.csat, floorAvg: effectiveSheetRow.floorAvgCsat, diff: effectiveSheetRow.csat - effectiveSheetRow.floorAvgCsat, status: effectiveSheetRow.csat >= effectiveSheetRow.floorAvgCsat ? "above" : "below" }) : (floorAverages ? formatFloorAvg(floorAverages.csat) : undefined)}
               />
             </div>
+
+            {/* Monthly Bonus Calculator */}
+            <BonusCard
+              userId={userId}
+              csat={mySheetRow?.csat ?? (totalSurveys > 0 ? csatPercentage : null)}
+              productivity={mySheetRow?.productivity ?? null}
+              closeRate={mySheetRow?.closeRate ?? null}
+              karmaGood={totalGood}
+              karmaBad={data.karmaBad || 0}
+              productiveDays={workDays}
+              selectedMonth={selectedMonth}
+              selectedYear={selectedYear}
+            />
 
             {/* My Sheet Metrics — real numbers from the team dashboard */}
             {mySheetRow && (
