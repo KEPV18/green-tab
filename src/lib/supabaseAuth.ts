@@ -73,12 +73,18 @@ export async function signUp(
 
   const supabase = getAuthClient();
 
+  // Generate a username from displayName or email prefix
+  // Must match ^[A-Za-z0-9_]{3,20}$ constraint in Supabase profiles table
+  const rawUsername = (displayName || email.split("@")[0]).replace(/[^A-Za-z0-9_]/g, "_").substring(0, 20);
+  const username = rawUsername.length < 3 ? rawUsername + "_00" : rawUsername;
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
         display_name: displayName || null,
+        username,
       },
     },
   });
@@ -120,40 +126,73 @@ export async function signUp(
 
 /**
  * Sign in an existing user with Supabase Auth.
- * Falls back to localStorage auth if Supabase is not configured.
+ * Falls back to localStorage auth if Supabase auth fails
+ * (e.g. user not found in Supabase, network error, etc.)
  */
 export async function signIn(email: string, password: string): Promise<AuthResult> {
-  // If Supabase is not configured, fall back to local auth
+  // If Supabase is not configured, fall back to local auth immediately
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return localSignIn(email, password);
   }
 
   const supabase = getAuthClient();
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-  if (error) {
-    if (error.message.includes("Invalid login credentials")) {
-      return { user: null, error: "Invalid login credentials", session: null };
+    if (error) {
+      // If Supabase auth fails, try local auth as fallback
+      // This handles: users who signed up locally, network errors, etc.
+      if (
+        error.message.includes("Invalid login credentials") ||
+        error.message.includes("email_not_confirmed") ||
+        error.message.includes("Email not confirmed")
+      ) {
+        // For "Invalid credentials" — user may have a local-only account
+        // For "Email not confirmed" — try local fallback in case they have a local account
+        const localResult = localSignIn(email, password);
+        if (!localResult.error) {
+          return localResult;
+        }
+        // If local auth also failed, return the original Supabase error
+      }
+
+      if (error.message.includes("email_not_confirmed") || error.message.includes("Email not confirmed")) {
+        return { user: null, error: "Please confirm your email first — check your inbox for the confirmation link.", session: null };
+      }
+
+      // Try local auth as fallback for any other Supabase error
+      const localResult = localSignIn(email, password);
+      if (!localResult.error) {
+        return localResult;
+      }
+
+      return { user: null, error: error.message, session: null };
     }
-    return { user: null, error: error.message, session: null };
+
+    if (!data.user) {
+      return { user: null, error: "Login failed — no user returned", session: null };
+    }
+
+    // Sync to localStorage store for backward compat
+    syncUserToLocalStore(mapUser(data.user));
+
+    return {
+      user: mapUser(data.user),
+      error: null,
+      session: data.session,
+    };
+  } catch (err) {
+    // Network error or Supabase unavailable — fall back to local auth
+    const localResult = localSignIn(email, password);
+    if (!localResult.error) {
+      return localResult;
+    }
+    return { user: null, error: err instanceof Error ? err.message : "Network error", session: null };
   }
-
-  if (!data.user) {
-    return { user: null, error: "Login failed — no user returned", session: null };
-  }
-
-  // Sync to localStorage store for backward compat
-  syncUserToLocalStore(mapUser(data.user));
-
-  return {
-    user: mapUser(data.user),
-    error: null,
-    session: data.session,
-  };
 }
 
 // ─── Sign Out ────────────────────────────────────────────────────────────────────

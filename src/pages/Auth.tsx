@@ -95,7 +95,7 @@ const Auth = () => {
 
       if (!result.session) {
         // Email confirmation required
-        toast.success("Account created! Please check your email to confirm, then log in.");
+        toast.success("Account created! Please check your email to confirm your account, then log in.");
       } else {
         toast.success("Account created successfully! 🎉");
       }
