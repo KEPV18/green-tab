@@ -110,6 +110,28 @@ const CSAT_TARGET_START = 75; // Changed from 88% to 75%
 const Index = () => {
   const { user } = useAuth();
   const userId = user?.id || "local";
+
+  // Load user settings for manual floor average overrides
+  const userSettings = useMemo(() => getUserSettings(userId), [userId]);
+
+  // Create an effective sheet row that merges manual floor overrides from settings
+  const effectiveSheetRow = useMemo(() => {
+    if (!mySheetRow) return null;
+    const floorKeys: (keyof typeof userSettings)[] = [
+      "floorAvgProductivity", "floorAvgCsat", "floorAvgAht", "floorAvgCloseRate",
+      "floorAvgFcr", "floorAvgEscalationRate", "floorAvgAdherence", "floorAvgIrtReplier",
+      "floorAvgClosedAfterResolution", "floorAvgDeescalationRate", "floorAvgOccupancy",
+      "floorAvgAvgGroupBasketTime", "floorAvgBreakExceed", "floorAvgIdleTime",
+    ];
+    const row = { ...mySheetRow };
+    for (const key of floorKeys) {
+      const manual = userSettings[key] as number | null | undefined;
+      if (manual != null && !isNaN(manual)) {
+        (row as any)[key] = manual;
+      }
+    }
+    return row;
+  }, [mySheetRow, userSettings]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [performanceId, setPerformanceId] = useState<string | null>(null);
@@ -1246,7 +1268,7 @@ const Index = () => {
                 title="CSAT"
                 percentage={mySheetRow && mySheetRow.csat != null ? mySheetRow.csat : csat}
                 subtitle={mySheetRow && mySheetRow.csat != null ? `${mySheetRow.csat.toFixed(1)}% from Sheet` : `${totalGood} / ${totalSurveys}`}
-                floorInfo={mySheetRow && mySheetRow.csat != null ? formatFloorAvg({ yourValue: mySheetRow.csat, floorAvg: mySheetRow.floorAvgCsat, diff: mySheetRow.csat - mySheetRow.floorAvgCsat, status: mySheetRow.csat >= mySheetRow.floorAvgCsat ? "above" : "below" }) : (floorAverages ? formatFloorAvg(floorAverages.csat) : undefined)}
+                floorInfo={effectiveSheetRow && effectiveSheetRow.csat != null ? formatFloorAvg({ yourValue: effectiveSheetRow.csat, floorAvg: effectiveSheetRow.floorAvgCsat, diff: effectiveSheetRow.csat - effectiveSheetRow.floorAvgCsat, status: effectiveSheetRow.csat >= effectiveSheetRow.floorAvgCsat ? "above" : "below" }) : (floorAverages ? formatFloorAvg(floorAverages.csat) : undefined)}
               />
             </div>
 
@@ -1266,7 +1288,7 @@ const Index = () => {
                     color="primary"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.csat != null ? `Floor: ${mySheetRow.floorAvgCsat}%` : undefined}
+                    subtitle={mySheetRow.csat != null ? `Floor: ${effectiveSheetRow.floorAvgCsat}%` : undefined}
                   />
                   <MetricCard
                     title="Productivity"
@@ -1274,7 +1296,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.productivity != null ? `Floor: ${mySheetRow.floorAvgProductivity}%` : undefined}
+                    subtitle={mySheetRow.productivity != null ? `Floor: ${effectiveSheetRow.floorAvgProductivity}%` : undefined}
                   />
                   <MetricCard
                     title="Escalation"
@@ -1282,7 +1304,7 @@ const Index = () => {
                     color="destructive"
                     icon={ThumbsDown}
                     showButtons={false}
-                    subtitle={mySheetRow.escalationRate != null ? `Floor: ${mySheetRow.floorAvgEscalationRate}%` : undefined}
+                    subtitle={mySheetRow.escalationRate != null ? `Floor: ${effectiveSheetRow.floorAvgEscalationRate}%` : undefined}
                   />
                   <MetricCard
                     title="Adherence"
@@ -1290,7 +1312,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.adherence != null ? `Floor: ${mySheetRow.floorAvgAdherence}%` : undefined}
+                    subtitle={mySheetRow.adherence != null ? `Floor: ${effectiveSheetRow.floorAvgAdherence}%` : undefined}
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-2">
@@ -1300,7 +1322,7 @@ const Index = () => {
                     color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.aht != null ? `Floor: ${mySheetRow.floorAvgAht}s` : undefined}
+                    subtitle={mySheetRow.aht != null ? `Floor: ${effectiveSheetRow.floorAvgAht}s` : undefined}
                   />
                   <MetricCard
                     title="IRT"
@@ -1308,7 +1330,7 @@ const Index = () => {
                     color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.irtReplier != null ? `Floor: ${mySheetRow.floorAvgIrtReplier}` : undefined}
+                    subtitle={mySheetRow.irtReplier != null ? `Floor: ${effectiveSheetRow.floorAvgIrtReplier}` : undefined}
                   />
                   <MetricCard
                     title="FCR"
@@ -1316,7 +1338,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.fcr != null ? `Floor: ${mySheetRow.floorAvgFcr}%` : undefined}
+                    subtitle={mySheetRow.fcr != null ? `Floor: ${effectiveSheetRow.floorAvgFcr}%` : undefined}
                   />
                   <MetricCard
                     title="Closed After Res."
@@ -1324,7 +1346,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.closedAfterResolution != null ? `Floor: ${mySheetRow.floorAvgClosedAfterResolution}%` : undefined}
+                    subtitle={mySheetRow.closedAfterResolution != null ? `Floor: ${effectiveSheetRow.floorAvgClosedAfterResolution}%` : undefined}
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-2">
@@ -1334,7 +1356,7 @@ const Index = () => {
                     color="destructive"
                     icon={ThumbsDown}
                     showButtons={false}
-                    subtitle={mySheetRow.breakExceed != null ? `Floor: ${mySheetRow.floorAvgBreakExceed}` : undefined}
+                    subtitle={mySheetRow.breakExceed != null ? `Floor: ${effectiveSheetRow.floorAvgBreakExceed}` : undefined}
                   />
                   <MetricCard
                     title="Idle Time"
@@ -1342,7 +1364,7 @@ const Index = () => {
                     color="destructive"
                     icon={ThumbsDown}
                     showButtons={false}
-                    subtitle={mySheetRow.idleTime != null ? `Floor: ${mySheetRow.floorAvgIdleTime}` : undefined}
+                    subtitle={mySheetRow.idleTime != null ? `Floor: ${effectiveSheetRow.floorAvgIdleTime}` : undefined}
                   />
                   <MetricCard
                     title="De-escalation"
@@ -1350,7 +1372,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.deescalationRate != null ? `Floor: ${mySheetRow.floorAvgDeescalationRate}%` : undefined}
+                    subtitle={mySheetRow.deescalationRate != null ? `Floor: ${effectiveSheetRow.floorAvgDeescalationRate}%` : undefined}
                   />
                   <MetricCard
                     title="Occupancy"
@@ -1358,7 +1380,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.occupancy != null ? `Floor: ${mySheetRow.floorAvgOccupancy}%` : undefined}
+                    subtitle={mySheetRow.occupancy != null ? `Floor: ${effectiveSheetRow.floorAvgOccupancy}%` : undefined}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -1368,7 +1390,7 @@ const Index = () => {
                     color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.avgGroupBasketTime != null ? `Floor: ${mySheetRow.floorAvgAvgGroupBasketTime}s` : undefined}
+                    subtitle={mySheetRow.avgGroupBasketTime != null ? `Floor: ${effectiveSheetRow.floorAvgAvgGroupBasketTime}s` : undefined}
                   />
                   <MetricCard
                     title="Closed Tickets %"
@@ -1376,7 +1398,7 @@ const Index = () => {
                     color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.closeRate != null ? `Floor: ${mySheetRow.floorAvgCloseRate}%` : undefined}
+                    subtitle={mySheetRow.closeRate != null ? `Floor: ${effectiveSheetRow.floorAvgCloseRate}%` : undefined}
                   />
                 </div>
               </div>

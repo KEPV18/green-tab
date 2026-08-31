@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, Lock, Save, DollarSign, Mail, Palette, RefreshCw, Bus, Wifi, Award, Languages, Shield, Eye, EyeOff } from "lucide-react";
+import { User, Lock, Save, DollarSign, Mail, Palette, RefreshCw, Bus, Wifi, Award, Languages, Shield, Eye, EyeOff, BarChart3 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { getUserSettings, updateUserSettings } from "@/lib/store";
 
@@ -49,6 +49,23 @@ export default function Settings() {
   const [knownBonusMonth, setKnownBonusMonth] = useState<string>("");
   const [isSalarySaving, setIsSalarySaving] = useState(false);
   const [isProfileSaving, setIsProfileSaving] = useState(false);
+  const [isFloorSaving, setIsFloorSaving] = useState(false);
+
+  // Floor average manual overrides
+  const [faProductivity, setFaProductivity] = useState<string>("");
+  const [faCsat, setFaCsat] = useState<string>("");
+  const [faAht, setFaAht] = useState<string>("");
+  const [faCloseRate, setFaCloseRate] = useState<string>("");
+  const [faFcr, setFaFcr] = useState<string>("");
+  const [faEscalationRate, setFaEscalationRate] = useState<string>("");
+  const [faAdherence, setFaAdherence] = useState<string>("");
+  const [faIrtReplier, setFaIrtReplier] = useState<string>("");
+  const [faClosedAfterResolution, setFaClosedAfterResolution] = useState<string>("");
+  const [faDeescalationRate, setFaDeescalationRate] = useState<string>("");
+  const [faOccupancy, setFaOccupancy] = useState<string>("");
+  const [faAvgGroupBasketTime, setFaAvgGroupBasketTime] = useState<string>("");
+  const [faBreakExceed, setFaBreakExceed] = useState<string>("");
+  const [faIdleTime, setFaIdleTime] = useState<string>("");
 
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -113,6 +130,21 @@ export default function Settings() {
           }
         }
         if (settings.shiftStartTime != null) {} // handled elsewhere
+        // Floor average overrides
+        if (settings.floorAvgProductivity != null) setFaProductivity(String(settings.floorAvgProductivity));
+        if (settings.floorAvgCsat != null) setFaCsat(String(settings.floorAvgCsat));
+        if (settings.floorAvgAht != null) setFaAht(String(settings.floorAvgAht));
+        if (settings.floorAvgCloseRate != null) setFaCloseRate(String(settings.floorAvgCloseRate));
+        if (settings.floorAvgFcr != null) setFaFcr(String(settings.floorAvgFcr));
+        if (settings.floorAvgEscalationRate != null) setFaEscalationRate(String(settings.floorAvgEscalationRate));
+        if (settings.floorAvgAdherence != null) setFaAdherence(String(settings.floorAvgAdherence));
+        if (settings.floorAvgIrtReplier != null) setFaIrtReplier(String(settings.floorAvgIrtReplier));
+        if (settings.floorAvgClosedAfterResolution != null) setFaClosedAfterResolution(String(settings.floorAvgClosedAfterResolution));
+        if (settings.floorAvgDeescalationRate != null) setFaDeescalationRate(String(settings.floorAvgDeescalationRate));
+        if (settings.floorAvgOccupancy != null) setFaOccupancy(String(settings.floorAvgOccupancy));
+        if (settings.floorAvgAvgGroupBasketTime != null) setFaAvgGroupBasketTime(String(settings.floorAvgAvgGroupBasketTime));
+        if (settings.floorAvgBreakExceed != null) setFaBreakExceed(String(settings.floorAvgBreakExceed));
+        if (settings.floorAvgIdleTime != null) setFaIdleTime(String(settings.floorAvgIdleTime));
       }
     } catch (e) {
       console.error('Error loading settings:', e);
@@ -178,6 +210,35 @@ export default function Settings() {
     }
   };
 
+  const onFloorSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) return;
+    setIsFloorSaving(true);
+    try {
+      updateUserSettings(userId, {
+        floorAvgProductivity: faProductivity ? parseFloat(faProductivity) : null,
+        floorAvgCsat: faCsat ? parseFloat(faCsat) : null,
+        floorAvgAht: faAht ? parseFloat(faAht) : null,
+        floorAvgCloseRate: faCloseRate ? parseFloat(faCloseRate) : null,
+        floorAvgFcr: faFcr ? parseFloat(faFcr) : null,
+        floorAvgEscalationRate: faEscalationRate ? parseFloat(faEscalationRate) : null,
+        floorAvgAdherence: faAdherence ? parseFloat(faAdherence) : null,
+        floorAvgIrtReplier: faIrtReplier ? parseFloat(faIrtReplier) : null,
+        floorAvgClosedAfterResolution: faClosedAfterResolution ? parseFloat(faClosedAfterResolution) : null,
+        floorAvgDeescalationRate: faDeescalationRate ? parseFloat(faDeescalationRate) : null,
+        floorAvgOccupancy: faOccupancy ? parseFloat(faOccupancy) : null,
+        floorAvgAvgGroupBasketTime: faAvgGroupBasketTime ? parseFloat(faAvgGroupBasketTime) : null,
+        floorAvgBreakExceed: faBreakExceed ? parseFloat(faBreakExceed) : null,
+        floorAvgIdleTime: faIdleTime ? parseFloat(faIdleTime) : null,
+      } as any);
+      toast.success("Floor averages saved — will be used on next dashboard load");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setIsFloorSaving(false);
+    }
+  };
+
   const onPasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) { toast.error("Passwords do not match"); return; }
@@ -218,9 +279,10 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="account" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="account" className="gap-2"><User className="h-4 w-4" /> Account</TabsTrigger>
           <TabsTrigger value="salary" className="gap-2"><DollarSign className="h-4 w-4" /> Salary</TabsTrigger>
+          <TabsTrigger value="floor" className="gap-2"><BarChart3 className="h-4 w-4" /> Floor Avg</TabsTrigger>
           <TabsTrigger value="security" className="gap-2"><Lock className="h-4 w-4" /> Security</TabsTrigger>
         </TabsList>
 
@@ -418,6 +480,93 @@ export default function Settings() {
 
                 <Button type="submit" disabled={isSalarySaving} className="w-full sm:w-auto">
                   <Save className="mr-2 h-4 w-4" /> {isSalarySaving ? "Saving..." : "Save Salary Settings"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Floor Averages Tab */}
+        <TabsContent value="floor">
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary" /> Floor Averages
+              </CardTitle>
+              <CardDescription>
+                Set manual floor average values for each metric. If set, these override the computed team averages shown on the dashboard.
+                Leave a field empty to use the computed team average from the sheet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={onFloorSave} className="space-y-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Productivity %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faProductivity} onChange={(e) => setFaProductivity(e.target.value)} placeholder="e.g. 75" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">CSAT %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faCsat} onChange={(e) => setFaCsat(e.target.value)} placeholder="e.g. 88" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">AHT (sec)</Label>
+                    <Input type="number" step="0.1" min="0" value={faAht} onChange={(e) => setFaAht(e.target.value)} placeholder="e.g. 360" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Close Rate %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faCloseRate} onChange={(e) => setFaCloseRate(e.target.value)} placeholder="e.g. 75" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">FCR %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faFcr} onChange={(e) => setFaFcr(e.target.value)} placeholder="e.g. 70" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Escalation Rate %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faEscalationRate} onChange={(e) => setFaEscalationRate(e.target.value)} placeholder="e.g. 5" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Adherence %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faAdherence} onChange={(e) => setFaAdherence(e.target.value)} placeholder="e.g. 85" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">IRT Replier (sec)</Label>
+                    <Input type="number" step="0.1" min="0" value={faIrtReplier} onChange={(e) => setFaIrtReplier(e.target.value)} placeholder="e.g. 45" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Closed After Resolution %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faClosedAfterResolution} onChange={(e) => setFaClosedAfterResolution(e.target.value)} placeholder="e.g. 80" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">De-escalation Rate %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faDeescalationRate} onChange={(e) => setFaDeescalationRate(e.target.value)} placeholder="e.g. 60" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Occupancy %</Label>
+                    <Input type="number" step="0.1" min="0" max="100" value={faOccupancy} onChange={(e) => setFaOccupancy(e.target.value)} placeholder="e.g. 70" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Avg Group Basket Time (sec)</Label>
+                    <Input type="number" step="0.1" min="0" value={faAvgGroupBasketTime} onChange={(e) => setFaAvgGroupBasketTime(e.target.value)} placeholder="e.g. 360" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Break Exceed</Label>
+                    <Input type="number" step="0.1" min="0" value={faBreakExceed} onChange={(e) => setFaBreakExceed(e.target.value)} placeholder="e.g. 2" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Idle Time</Label>
+                    <Input type="number" step="0.1" min="0" value={faIdleTime} onChange={(e) => setFaIdleTime(e.target.value)} placeholder="e.g. 15" />
+                  </div>
+                </div>
+
+                <Card className="p-3 bg-muted/30 border-dashed">
+                  <p className="text-xs text-muted-foreground">
+                    💡 <strong>How it works:</strong> When you set a floor average value here, the dashboard will compare your metrics against this value instead of the computed team average from the sheet. Leave a field empty to fall back to the automatic team average.
+                  </p>
+                </Card>
+
+                <Button type="submit" disabled={isFloorSaving} className="w-full sm:w-auto">
+                  <Save className="mr-2 h-4 w-4" /> {isFloorSaving ? "Saving..." : "Save Floor Averages"}
                 </Button>
               </form>
             </CardContent>

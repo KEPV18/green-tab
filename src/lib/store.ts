@@ -120,6 +120,21 @@ export interface UserSettings {
   kpiDelayMonths?: number;
   employeeType?: string;
   startMonth?: string;
+  // Manual floor average overrides (if set, used instead of computed from sheet)
+  floorAvgProductivity?: number | null;
+  floorAvgCsat?: number | null;
+  floorAvgAht?: number | null;
+  floorAvgCloseRate?: number | null;
+  floorAvgFcr?: number | null;
+  floorAvgEscalationRate?: number | null;
+  floorAvgAdherence?: number | null;
+  floorAvgIrtReplier?: number | null;
+  floorAvgClosedAfterResolution?: number | null;
+  floorAvgDeescalationRate?: number | null;
+  floorAvgOccupancy?: number | null;
+  floorAvgAvgGroupBasketTime?: number | null;
+  floorAvgBreakExceed?: number | null;
+  floorAvgIdleTime?: number | null;
   // Legacy aliases (supabase column names)
   base_salary?: number | null;
   tax_rate?: number | null;
