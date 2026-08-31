@@ -1056,19 +1056,28 @@ const Index = () => {
     { phone: 0, chat: 0, email: 0 }
   ), [data.tickets]);
 
-  // KPI score state (from PhoneBonusKPI calculation)
-  const [kpiScore, setKpiScore] = useState(0);
+  // KPI score — calculated locally with karma gate
+  // Karma gate: KPI is 0 if karma < 73%
+  const KARMA_THRESHOLD = 73;
+  const karmaGate = karma >= KARMA_THRESHOLD ? 1 : 0;
 
-  // Listen for KPI score broadcasts
+  const kpiScore = useMemo(() => {
+    if (karmaGate === 0) return 0;
+    // If PhoneBonusKPI broadcasts a score, it will override via CustomEvent
+    return kpiScoreFromBroadcast;
+  }, [karmaGate, kpiScoreFromBroadcast]);
+
+  // Listen for KPI score broadcasts from PhoneBonusKPI component (if mounted elsewhere)
+  const [kpiScoreFromBroadcast, setKpiScoreFromBroadcast] = useState(0);
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<number>;
-      if (typeof ce.detail === 'number') setKpiScore(ce.detail);
+      if (typeof ce.detail === 'number') setKpiScoreFromBroadcast(ce.detail);
     };
     window.addEventListener("ktb_kpi_score", handler as EventListener);
     try {
       const stored = localStorage.getItem("ktb_kpi_score");
-      if (stored) setKpiScore(parseFloat(stored));
+      if (stored) setKpiScoreFromBroadcast(parseFloat(stored));
     } catch {}
     return () => window.removeEventListener("ktb_kpi_score", handler as EventListener);
   }, []);
