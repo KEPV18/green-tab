@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useRef, createContext, useContext, ReactNode } from "react";
 import {
   AuthUser,
   getCurrentSession,
@@ -20,6 +20,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     // Check for existing session on mount
@@ -29,10 +30,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSession(result.session);
       }
       setIsLoading(false);
+      initializedRef.current = true;
     });
 
     // Listen for auth state changes (Supabase or localStorage)
+    // Debounce rapid auth events to prevent navigation loops
     const unsubscribe = onAuthStateChange((authUser, authSession) => {
+      // Only process auth changes after initial load
+      if (!initializedRef.current) return;
+
       setUser(authUser);
       setSession(authSession);
       setIsLoading(false);

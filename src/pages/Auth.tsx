@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,9 +29,13 @@ const Auth = () => {
   const [signupUsername, setSignupUsername] = useState("");
 
   // Check for existing session on mount — redirect if already logged in
+  // Use a ref to prevent multiple redirects
+  const hasRedirected = useRef(false);
   useEffect(() => {
+    if (hasRedirected.current) return;
     getCurrentSession().then((result) => {
-      if (result?.user) {
+      if (result?.user && !hasRedirected.current) {
+        hasRedirected.current = true;
         navigate("/", { replace: true });
       }
     });
