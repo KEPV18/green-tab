@@ -142,7 +142,7 @@ export const DailyTarget = ({
     if (currentGood >= 50) list.push({ label: "Bronze 50" });
     if (currentGood >= 100) list.push({ label: "Silver 100" });
     if (currentGood >= 200) list.push({ label: "Gold 200" });
-    if (calculations.currentKarma >= 92) list.push({ label: "Expert 92%" });
+    if (calculations.currentKarma >= 88) list.push({ label: "Expert 88%" });
     return list;
   }, [currentGood, calculations]);
 
