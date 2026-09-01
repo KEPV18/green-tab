@@ -112,6 +112,11 @@ const Index = () => {
   const { user } = useAuth();
   const userId = user?.id || "local";
 
+  // Sheet metrics from team data (declared before effectiveSheetRow to avoid TDZ)
+  const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
+  const [teamData, setTeamData] = useState<TeamData | null>(null);
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
+
   // Load user settings for manual floor average overrides
   const userSettings = useMemo(() => getUserSettings(userId), [userId]);
 
@@ -230,11 +235,6 @@ const Index = () => {
   performanceIdRef.current = performanceId;
 
   const [includeKarmaInCSAT] = useState<boolean>(false);
-
-  // Sheet metrics from team data
-  const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
-  const [teamData, setTeamData] = useState<TeamData | null>(null);
-  const [showTeamPicker, setShowTeamPicker] = useState(false);
 
   // Available months for selection (last 12 months)
   const availableMonthsForComparison = useMemo(() => {
