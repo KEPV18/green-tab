@@ -382,33 +382,90 @@ export async function refreshTeamData(): Promise<TeamData> {
 /**
  * Fetch from Supabase, compute floor averages OVER CHAT TEAM ONLY,
  * assign CSAT rankings.
+ *
+ * For Dashboard source data, floor averages come from the
+ * floor_average and team_average rows in team_metrics.
+ * For legacy Team Scores data, floor averages are computed from agent rows.
  */
 async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
+  // Fetch all data, ordered by month desc so latest month comes first
   const { data, error } = await client
     .from("team_metrics")
     .select("*")
+    .order("month", { ascending: false })
     .order("agent_name");
 
   if (error || !data || data.length === 0) return null;
 
-  const allMembers = (data as SupabaseTeamMetric[]).map(supabaseRowToMemberRow);
+  const allRows = data as SupabaseTeamMetric[];
 
-  // Floor averages computed over CHAT TEAM ONLY (excluded agents are NOT included)
+  // Use the latest month only
+  const latestMonth = allRows[0].month;
+  const latestRows = allRows.filter(r => r.month === latestMonth);
+
+  // Separate special rows from agent rows
+  const agentRows = latestRows.filter(r =>
+    r.agent_email !== "floor_average" &&
+    r.agent_email !== "team_average" &&
+    r.agent_email !== "Total"
+  );
+  const floorAvgRow = latestRows.find(r => r.agent_email === "floor_average");
+  const teamAvgRow = latestRows.find(r => r.agent_email === "team_average");
+
+  const allMembers = agentRows.map(supabaseRowToMemberRow);
+
+  // Floor averages: prefer explicit floor_average row if available (Dashboard source),
+  // otherwise compute from agent data (legacy Team Scores source)
   const chatTeam = filterChatTeam(allMembers);
-  const floorAvgProductivity = computeFloorAvg(chatTeam.map((m) => m.productivity));
-  const floorAvgCsat = computeFloorAvg(chatTeam.map((m) => m.csat));
-  const floorAvgAht = computeFloorAvg(chatTeam.map((m) => m.aht));
-  const floorAvgCloseRate = computeFloorAvg(chatTeam.map((m) => m.closeRate));
-  const floorAvgFcr = computeFloorAvg(chatTeam.map((m) => m.fcr));
-  const floorAvgEscalationRate = computeFloorAvg(chatTeam.map((m) => m.escalationRate));
-  const floorAvgAdherence = computeFloorAvg(chatTeam.map((m) => m.adherence));
-  const floorAvgIrtReplier = computeFloorAvg(chatTeam.map((m) => m.irtReplier));
-  const floorAvgClosedAfterResolution = computeFloorAvg(chatTeam.map((m) => m.closedAfterResolution));
-  const floorAvgDeescalationRate = computeFloorAvg(chatTeam.map((m) => m.deescalationRate));
-  const floorAvgOccupancy = computeFloorAvg(chatTeam.map((m) => m.occupancy));
-  const floorAvgAvgGroupBasketTime = computeFloorAvg(chatTeam.map((m) => m.avgGroupBasketTime));
-  const floorAvgBreakExceed = computeFloorAvg(chatTeam.map((m) => m.breakExceed));
-  const floorAvgIdleTime = computeFloorAvg(chatTeam.map((m) => m.idleTime));
+
+  let floorAvgProductivity: number;
+  let floorAvgCsat: number;
+  let floorAvgAht: number;
+  let floorAvgCloseRate: number;
+  let floorAvgFcr: number;
+  let floorAvgEscalationRate: number;
+  let floorAvgAdherence: number;
+  let floorAvgIrtReplier: number;
+  let floorAvgClosedAfterResolution: number;
+  let floorAvgDeescalationRate: number;
+  let floorAvgOccupancy: number;
+  let floorAvgAvgGroupBasketTime: number;
+  let floorAvgBreakExceed: number;
+  let floorAvgIdleTime: number;
+
+  if (floorAvgRow) {
+    // Use pre-computed floor averages from Dashboard source
+    floorAvgProductivity = floorAvgRow.productivity ?? computeFloorAvg(chatTeam.map((m) => m.productivity));
+    floorAvgCsat = floorAvgRow.csat ?? computeFloorAvg(chatTeam.map((m) => m.csat));
+    floorAvgAht = floorAvgRow.chat_aht ?? computeFloorAvg(chatTeam.map((m) => m.aht));
+    floorAvgCloseRate = floorAvgRow.closed_tickets_pct ?? computeFloorAvg(chatTeam.map((m) => m.closeRate));
+    floorAvgFcr = floorAvgRow.fcr ?? computeFloorAvg(chatTeam.map((m) => m.fcr));
+    floorAvgEscalationRate = floorAvgRow.escalation_rate ?? computeFloorAvg(chatTeam.map((m) => m.escalationRate));
+    floorAvgAdherence = floorAvgRow.adherence ?? computeFloorAvg(chatTeam.map((m) => m.adherence));
+    floorAvgIrtReplier = floorAvgRow.irt_replier ?? computeFloorAvg(chatTeam.map((m) => m.irtReplier));
+    floorAvgClosedAfterResolution = floorAvgRow.closed_after_resolution ?? computeFloorAvg(chatTeam.map((m) => m.closedAfterResolution));
+    floorAvgDeescalationRate = floorAvgRow.deescalation_rate ?? computeFloorAvg(chatTeam.map((m) => m.deescalationRate));
+    floorAvgOccupancy = floorAvgRow.occupancy ?? computeFloorAvg(chatTeam.map((m) => m.occupancy));
+    floorAvgAvgGroupBasketTime = floorAvgRow.avg_group_basket_time ?? computeFloorAvg(chatTeam.map((m) => m.avgGroupBasketTime));
+    floorAvgBreakExceed = floorAvgRow.break_exceed ?? computeFloorAvg(chatTeam.map((m) => m.breakExceed));
+    floorAvgIdleTime = floorAvgRow.idle_time ?? computeFloorAvg(chatTeam.map((m) => m.idleTime));
+  } else {
+    // Compute floor averages from agent data (legacy Team Scores source)
+    floorAvgProductivity = computeFloorAvg(chatTeam.map((m) => m.productivity));
+    floorAvgCsat = computeFloorAvg(chatTeam.map((m) => m.csat));
+    floorAvgAht = computeFloorAvg(chatTeam.map((m) => m.aht));
+    floorAvgCloseRate = computeFloorAvg(chatTeam.map((m) => m.closeRate));
+    floorAvgFcr = computeFloorAvg(chatTeam.map((m) => m.fcr));
+    floorAvgEscalationRate = computeFloorAvg(chatTeam.map((m) => m.escalationRate));
+    floorAvgAdherence = computeFloorAvg(chatTeam.map((m) => m.adherence));
+    floorAvgIrtReplier = computeFloorAvg(chatTeam.map((m) => m.irtReplier));
+    floorAvgClosedAfterResolution = computeFloorAvg(chatTeam.map((m) => m.closedAfterResolution));
+    floorAvgDeescalationRate = computeFloorAvg(chatTeam.map((m) => m.deescalationRate));
+    floorAvgOccupancy = computeFloorAvg(chatTeam.map((m) => m.occupancy));
+    floorAvgAvgGroupBasketTime = computeFloorAvg(chatTeam.map((m) => m.avgGroupBasketTime));
+    floorAvgBreakExceed = computeFloorAvg(chatTeam.map((m) => m.breakExceed));
+    floorAvgIdleTime = computeFloorAvg(chatTeam.map((m) => m.idleTime));
+  }
 
   // Assign floor averages and rankings to ALL members (including excluded)
   for (const m of allMembers) {
@@ -431,7 +488,7 @@ async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
   // CSAT ranking over CHAT TEAM ONLY
   assignCsatRanks(chatTeam);
 
-  const monthLabel = (data as SupabaseTeamMetric[])[0]?.month || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthLabel = latestMonth || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const teamData: TeamData = {
     members: allMembers,

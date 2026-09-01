@@ -39,18 +39,19 @@ from typing import Any
 
 # ── Config ──────────────────────────────────────────────────────────────────────
 
-SHEET_ID = "1O3WHz1gphUvoBLdQlJ9sT5pWBlgrjASwGFpgO-0qRmw"
+SHEET_ID = "1w_mLKr2d1VgduPY0iGqdZ6lv1fQhOGUQIL-h67lGxqE"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
 
-# ONLY TWO VALID DATA SOURCES — everything else is strictly ignored
-TEAM_SCORES_GID = "87009911"
-KSCAT_CALC_GID = "758073782"
+# ONLY ONE DATA SOURCE — the new Performance Dashboard sheet
+DASHBOARD_GID = "1"
 
-TEAM_SCORES_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={TEAM_SCORES_GID}"
-KSCAT_CALC_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={KSCAT_CALC_GID}"
+DASHBOARD_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={DASHBOARD_GID}"
 
-TEAM_SCORES_TAB_NAME = "Team Scores"
-KSCAT_CALC_TAB_NAME = "KSCAT Calc"
+DASHBOARD_TAB_NAME = "Dashboard"
+
+# Legacy GIDs (kept for backward compat, no longer fetched)
+TEAM_SCORES_GID = "1"
+KSCAT_CALC_GID = "1"
 
 DEFAULT_PROFILE_DIR = Path.home() / ".config" / "green-tab" / "browser-profile"
 SCREENSHOT_DIR = Path("/tmp/green-tab-screenshots")
