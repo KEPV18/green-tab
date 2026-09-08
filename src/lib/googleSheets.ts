@@ -210,11 +210,13 @@ interface SupabaseTeamMetric {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CACHE_KEY = "gt_team_data_cache";
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes (was 4h — too stale when Supabase updates)
+const CACHE_VERSION = 3; // Bump this when Supabase data structure changes to invalidate old caches
 
 interface CachedTeamData {
   data: TeamData;
   fetchedAt: number;
+  version?: number; // Cache version — stale caches are discarded
 }
 
 // ─── Helper: compute floor average of non-null values ──────────────────────────
@@ -300,13 +302,19 @@ export async function fetchTeamData(): Promise<TeamData> {
   try {
     const cached = readJSON<CachedTeamData | null>(CACHE_KEY, null);
     if (cached && cached.data && cached.data.members.length > 0) {
-      const age = Date.now() - cached.fetchedAt;
-      if (age < CACHE_TTL_MS) {
-        return cached.data;
+      // Discard stale cache if version mismatch
+      if (cached.version !== CACHE_VERSION) {
+        try { localStorage.removeItem(CACHE_KEY); } catch {}
+      } else {
+        const age = Date.now() - cached.fetchedAt;
+        if (age < CACHE_TTL_MS) {
+          return cached.data;
+        }
       }
     }
   } catch {
-    // Cache corrupted
+    // Cache corrupted — clear it
+    try { localStorage.removeItem(CACHE_KEY); } catch {}
   }
 
   // 2. Try Supabase
@@ -330,7 +338,7 @@ export async function fetchTeamData(): Promise<TeamData> {
       const data: TeamData = await res.json();
       if (data && data.members && data.members.length > 0) {
         try {
-          writeJSON(CACHE_KEY, { data, fetchedAt: Date.now() });
+          writeJSON(CACHE_KEY, { data, fetchedAt: Date.now(), version: CACHE_VERSION });
         } catch {}
         return data;
       }
@@ -514,7 +522,7 @@ async function fetchFromSupabase(client: Client): Promise<TeamData | null> {
 
   // Cache it
   try {
-    writeJSON(CACHE_KEY, { data: teamData, fetchedAt: Date.now() });
+    writeJSON(CACHE_KEY, { data: teamData, fetchedAt: Date.now(), version: CACHE_VERSION });
   } catch {}
 
   return teamData;
@@ -579,14 +587,22 @@ const KSCAT_CACHE_KEY = "gt_kscat_data_cache";
 export async function fetchKscatData(): Promise<KscatData | null> {
   // 1. Check localStorage cache
   try {
-    const cached = readJSON<{ data: KscatData; fetchedAt: number } | null>(KSCAT_CACHE_KEY, null);
+    const cached = readJSON<{ data: KscatData; fetchedAt: number; version?: number } | null>(KSCAT_CACHE_KEY, null);
     if (cached && cached.data && cached.data.agents.length > 0) {
-      const age = Date.now() - cached.fetchedAt;
-      if (age < CACHE_TTL_MS) {
-        return cached.data;
+      // Discard stale cache if version mismatch
+      if (cached.version !== CACHE_VERSION) {
+        try { localStorage.removeItem(KSCAT_CACHE_KEY); } catch {}
+      } else {
+        const age = Date.now() - cached.fetchedAt;
+        if (age < CACHE_TTL_MS) {
+          return cached.data;
+        }
       }
     }
-  } catch {}
+  } catch {
+    // Cache corrupted — clear it
+    try { localStorage.removeItem(KSCAT_CACHE_KEY); } catch {}
+  }
 
   // 2. Try Supabase
   const supabase = getSupabaseClient();
@@ -620,7 +636,7 @@ export async function fetchKscatData(): Promise<KscatData | null> {
         };
 
         try {
-          writeJSON(KSCAT_CACHE_KEY, { data: kscatData, fetchedAt: Date.now() });
+          writeJSON(KSCAT_CACHE_KEY, { data: kscatData, fetchedAt: Date.now(), version: CACHE_VERSION });
         } catch {}
 
         return kscatData;
@@ -657,7 +673,7 @@ export async function fetchKscatData(): Promise<KscatData | null> {
           fetchedAt: new Date().toISOString(),
         };
         try {
-          writeJSON(KSCAT_CACHE_KEY, { data: kscatData, fetchedAt: Date.now() });
+          writeJSON(KSCAT_CACHE_KEY, { data: kscatData, fetchedAt: Date.now(), version: CACHE_VERSION });
         } catch {}
         return kscatData;
       }

@@ -1,12 +1,15 @@
 import { safeId } from "@/lib/utils";
-import { useState, useEffect } from "react";
-import { Card } from "@/components/ui/card";
+import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarDays, Plus, Trash2, Clock, MapPin, Building } from "lucide-react";
+import { CalendarDays, Plus, Trash2, Clock, MapPin, Building, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { getUserSettings } from "@/lib/store";
+import { BonusCard } from "@/components/BonusCard";
+import { fetchTeamData, fetchKscatData, findMyRow, type TeamData, type KscatAgentRow, type TeamMemberRow, calculateFloorAverages } from "@/lib/googleSheets";
+import { getSupabaseClient } from "@/lib/supabase";
 
 const SHIFT_PREFIX = "gt_shifts_";
 
@@ -59,9 +62,16 @@ export default function WorkSchedule() {
   const [newEnd, setNewEnd] = useState("18:00");
   const [newBreak, setNewBreak] = useState(60);
 
+  // Bonus card data
+  const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
+  const [myKscatRow, setMyKscatRow] = useState<KscatAgentRow | null>(null);
+  const [teamData, setTeamData] = useState<TeamData | null>(null);
+  const [remainingWorkingDays, setRemainingWorkingDays] = useState<number>(0);
+
   const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const monthName = new Date(selectedYear, selectedMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
+  // Load shifts
   useEffect(() => {
     const loaded: Record<string, ShiftEntry> = {};
     for (let d = 1; d <= daysInMonth; d++) {
@@ -71,6 +81,73 @@ export default function WorkSchedule() {
     }
     setShifts(loaded);
   }, [userId, selectedMonth, selectedYear, daysInMonth]);
+
+  // Load team data for Bonus Card
+  useEffect(() => {
+    if (!user) return;
+
+    fetchTeamData().then((data) => {
+      if (!data) return;
+      setTeamData(data);
+
+      const myRow = findMyRow(data, user.email, user.displayName || null);
+      if (myRow) {
+        setMySheetRow(myRow);
+      } else {
+        // Try localStorage-selected team email
+        try {
+          const savedEmail = localStorage.getItem("gt_selected_team_email");
+          if (savedEmail) {
+            const found = data.members.find(m => m.email.toLowerCase() === savedEmail.toLowerCase());
+            if (found) setMySheetRow(found);
+          }
+        } catch {}
+      }
+    }).catch(() => {});
+
+    fetchKscatData().then((kd) => {
+      if (kd && kd.agents.length > 0 && user) {
+        const myRow = kd.agents.find(a => a.agentEmail.toLowerCase() === user.email.toLowerCase());
+        if (myRow) setMyKscatRow(myRow);
+      }
+    }).catch(() => {});
+  }, [user]);
+
+  // Calculate remaining working days
+  useEffect(() => {
+    const now = new Date();
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    let workingDaysLeft = 0;
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    while (d <= endOfMonth) {
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) workingDaysLeft++;
+      d.setDate(d.getDate() + 1);
+    }
+    setRemainingWorkingDays(workingDaysLeft || 1);
+  }, []);
+
+  // Local tracking data for bonus card
+  const [totalGood, setTotalGood] = useState(0);
+  const [totalBad, setTotalBad] = useState(0);
+  const [karmaBad, setKarmaBad] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const year = new Date().getFullYear();
+      const month = new Date().getMonth() + 1;
+      const key = `ktb_data_${userId}_${year}_${month}`;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const data = JSON.parse(raw);
+        setTotalGood(data.good || 0);
+        setTotalBad(data.bad || 0);
+        setKarmaBad(data.karmaBad || 0);
+      }
+    } catch {}
+  }, [userId]);
 
   const addShift = () => {
     if (!newDate) { toast.error("Select a date"); return; }
@@ -126,6 +203,20 @@ export default function WorkSchedule() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Monthly Bonus Calculator */}
+      <BonusCard
+        userId={userId}
+        csat={mySheetRow?.csat ?? (totalGood + totalBad > 0 ? (totalGood / (totalGood + totalBad)) * 100 : null)}
+        productivity={mySheetRow?.productivity ?? null}
+        closeRate={mySheetRow?.closeRate ?? null}
+        karmaGood={totalGood}
+        karmaBad={karmaBad}
+        productiveDays={remainingWorkingDays || 1}
+        selectedMonth={selectedMonth}
+        selectedYear={selectedYear}
+      />
+
+      {/* Work Schedule */}
       <div className="flex items-center gap-2">
         <CalendarDays className="h-6 w-6 text-primary" />
         <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">

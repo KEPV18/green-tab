@@ -10,7 +10,7 @@ import { QuickActionsBar } from "@/components/QuickActionsBar";
 
 import { MetricCard } from "@/components/MetricCard";
 import { PercentageDisplay } from "@/components/PercentageDisplay";
-import { fetchTeamData, findMyRow, type TeamMemberRow, type TeamData } from "@/lib/googleSheets";
+import { fetchTeamData, findMyRow, type TeamMemberRow, type TeamData, fetchKscatData, type KscatAgentRow } from "@/lib/googleSheets";
 import { TicketsTable, Ticket } from "@/components/TicketsTable";
 // Removed imports: ChannelAnalytics, MonthComparison, FCRMetric, BestProductiveTime, PhoneBonusKPI, SmartKPITips, StreaksMilestones, DailyKPITarget, ManualProductivityCard, ThreeMonthPerformance
 import { MonthSelector } from "@/components/MonthSelector";
@@ -22,7 +22,7 @@ import { GenesysTicketForm } from "@/components/GenesysTicketForm";
 import { DailyTarget } from "@/components/DailyTarget";
 import { SmartRatingDialog } from "@/components/SmartRatingDialog";
 import { HoldTicketsSection } from "@/components/HoldTicketsSection";
-import { BonusCard } from "@/components/BonusCard";
+
 import { DailyNotesSection } from "@/components/DailyNotesSection";
 import { BreakScheduler } from "@/components/BreakScheduler";
 import { TodayShiftCard } from "@/components/TodayShiftCard";
@@ -116,6 +116,7 @@ const Index = () => {
   const [mySheetRow, setMySheetRow] = useState<TeamMemberRow | null>(null);
   const [teamData, setTeamData] = useState<TeamData | null>(null);
   const [showTeamPicker, setShowTeamPicker] = useState(false);
+  const [myKscatRow, setMyKscatRow] = useState<KscatAgentRow | null>(null);
 
   // Load user settings for manual floor average overrides
   const userSettings = useMemo(() => getUserSettings(userId), [userId]);
@@ -338,6 +339,18 @@ const Index = () => {
       }
     }).catch(() => {
       // Silently fail - sheet data is supplementary
+    });
+
+    // Fetch KSCAT data (survey counts) from Supabase
+    fetchKscatData().then((kd) => {
+      if (kd && kd.agents.length > 0 && user) {
+        const myRow = kd.agents.find(a => a.agentEmail.toLowerCase() === user.email.toLowerCase());
+        if (myRow) {
+          setMyKscatRow(myRow);
+        }
+      }
+    }).catch(() => {
+      // Silently fail - KSCAT data is supplementary
     });
   }, [user]);
 
@@ -1084,14 +1097,14 @@ const Index = () => {
   const KARMA_THRESHOLD = 73;
   const karmaGate = karma >= KARMA_THRESHOLD ? 1 : 0;
 
+  // Listen for KPI score broadcasts from PhoneBonusKPI component (if mounted elsewhere)
+  const [kpiScoreFromBroadcast, setKpiScoreFromBroadcast] = useState(0);
+
   const kpiScore = useMemo(() => {
     if (karmaGate === 0) return 0;
     // If PhoneBonusKPI broadcasts a score, it will override via CustomEvent
     return kpiScoreFromBroadcast;
   }, [karmaGate, kpiScoreFromBroadcast]);
-
-  // Listen for KPI score broadcasts from PhoneBonusKPI component (if mounted elsewhere)
-  const [kpiScoreFromBroadcast, setKpiScoreFromBroadcast] = useState(0);
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<number>;
@@ -1273,148 +1286,149 @@ const Index = () => {
               />
             </div>
 
-            {/* Monthly Bonus Calculator */}
-            <BonusCard
-              userId={userId}
-              csat={mySheetRow?.csat ?? (totalSurveys > 0 ? csatPercentage : null)}
-              productivity={mySheetRow?.productivity ?? null}
-              closeRate={mySheetRow?.closeRate ?? null}
-              karmaGood={totalGood}
-              karmaBad={data.karmaBad || 0}
-              productiveDays={workDays}
-              selectedMonth={selectedMonth}
-              selectedYear={selectedYear}
-            />
-
             {/* My Sheet Metrics — real numbers from the team dashboard */}
             {mySheetRow && (
               <div className="space-y-2">
                 <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                  📊 My Metrics (from Sheet)
+                  📊 Key Metrics
                   {mySheetRow.rankCsat && (
                     <span className="text-primary font-bold ml-1">CSAT Rank #{mySheetRow.rankCsat}</span>
                   )}
                 </h3>
+                {/* Top 4 key metrics — the most important ones */}
                 <div className="grid grid-cols-4 gap-2">
                   <MetricCard
                     title="CSAT"
                     value={mySheetRow.csat != null ? Number(mySheetRow.csat.toFixed(1)) : 0}
-                    color="primary"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.csat != null ? `Floor: ${effectiveSheetRow.floorAvgCsat}%` : undefined}
+                    floorValue={mySheetRow.csat != null ? effectiveSheetRow.floorAvgCsat : undefined}
+                    unit="%"
                   />
                   <MetricCard
                     title="Productivity"
                     value={mySheetRow.productivity != null ? Number(mySheetRow.productivity.toFixed(1)) : 0}
-                    color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.productivity != null ? `Floor: ${effectiveSheetRow.floorAvgProductivity}%` : undefined}
+                    floorValue={mySheetRow.productivity != null ? effectiveSheetRow.floorAvgProductivity : undefined}
+                    unit="%"
                   />
-                  <MetricCard
-                    title="Escalation"
-                    value={mySheetRow.escalationRate != null ? Number(mySheetRow.escalationRate.toFixed(1)) : 0}
-                    color="destructive"
-                    icon={ThumbsDown}
-                    showButtons={false}
-                    subtitle={mySheetRow.escalationRate != null ? `Floor: ${effectiveSheetRow.floorAvgEscalationRate}%` : undefined}
-                  />
-                  <MetricCard
-                    title="Adherence"
-                    value={mySheetRow.adherence != null ? Number(mySheetRow.adherence.toFixed(1)) : 0}
-                    color="success"
-                    icon={ThumbsUp}
-                    showButtons={false}
-                    subtitle={mySheetRow.adherence != null ? `Floor: ${effectiveSheetRow.floorAvgAdherence}%` : undefined}
-                  />
-                </div>
-                <div className="grid grid-cols-4 gap-2">
                   <MetricCard
                     title="ABT"
                     value={mySheetRow.aht != null ? Number(mySheetRow.aht.toFixed(1)) : 0}
-                    color="warning"
                     icon={AlertTriangle}
                     showButtons={false}
-                    subtitle={mySheetRow.aht != null ? `Floor: ${effectiveSheetRow.floorAvgAht}s` : undefined}
+                    lowerIsBetter
+                    floorValue={mySheetRow.aht != null ? effectiveSheetRow.floorAvgAht : undefined}
+                    unit="s"
                   />
                   <MetricCard
-                    title="IRT"
-                    value={mySheetRow.irtReplier != null ? Number(mySheetRow.irtReplier.toFixed(1)) : 0}
-                    color="warning"
-                    icon={AlertTriangle}
-                    showButtons={false}
-                    subtitle={mySheetRow.irtReplier != null ? `Floor: ${effectiveSheetRow.floorAvgIrtReplier}` : undefined}
-                  />
-                  <MetricCard
-                    title="FCR"
-                    value={mySheetRow.fcr != null ? Number(mySheetRow.fcr.toFixed(1)) : 0}
-                    color="success"
-                    icon={ThumbsUp}
-                    showButtons={false}
-                    subtitle={mySheetRow.fcr != null ? `Floor: ${effectiveSheetRow.floorAvgFcr}%` : undefined}
-                  />
-                  <MetricCard
-                    title="Closed After Res."
-                    value={mySheetRow.closedAfterResolution != null ? Number(mySheetRow.closedAfterResolution.toFixed(1)) : 0}
-                    color="success"
-                    icon={ThumbsUp}
-                    showButtons={false}
-                    subtitle={mySheetRow.closedAfterResolution != null ? `Floor: ${effectiveSheetRow.floorAvgClosedAfterResolution}%` : undefined}
-                  />
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  <MetricCard
-                    title="Break Exceed"
-                    value={mySheetRow.breakExceed != null ? Number(mySheetRow.breakExceed.toFixed(1)) : 0}
-                    color="destructive"
-                    icon={ThumbsDown}
-                    showButtons={false}
-                    subtitle={mySheetRow.breakExceed != null ? `Floor: ${effectiveSheetRow.floorAvgBreakExceed}` : undefined}
-                  />
-                  <MetricCard
-                    title="Idle Time"
-                    value={mySheetRow.idleTime != null ? Number(mySheetRow.idleTime.toFixed(1)) : 0}
-                    color="destructive"
-                    icon={ThumbsDown}
-                    showButtons={false}
-                    subtitle={mySheetRow.idleTime != null ? `Floor: ${effectiveSheetRow.floorAvgIdleTime}` : undefined}
-                  />
-                  <MetricCard
-                    title="De-escalation"
-                    value={mySheetRow.deescalationRate != null ? Number(mySheetRow.deescalationRate.toFixed(1)) : 0}
-                    color="success"
-                    icon={ThumbsUp}
-                    showButtons={false}
-                    subtitle={mySheetRow.deescalationRate != null ? `Floor: ${effectiveSheetRow.floorAvgDeescalationRate}%` : undefined}
-                  />
-                  <MetricCard
-                    title="Occupancy"
-                    value={mySheetRow.occupancy != null ? Number(mySheetRow.occupancy.toFixed(1)) : 0}
-                    color="success"
-                    icon={ThumbsUp}
-                    showButtons={false}
-                    subtitle={mySheetRow.occupancy != null ? `Floor: ${effectiveSheetRow.floorAvgOccupancy}%` : undefined}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <MetricCard
-                    title="Avg Group Basket Time"
-                    value={mySheetRow.avgGroupBasketTime != null ? Number(mySheetRow.avgGroupBasketTime.toFixed(1)) : 0}
-                    color="warning"
-                    icon={AlertTriangle}
-                    showButtons={false}
-                    subtitle={mySheetRow.avgGroupBasketTime != null ? `Floor: ${effectiveSheetRow.floorAvgAvgGroupBasketTime}s` : undefined}
-                  />
-                  <MetricCard
-                    title="Closed Tickets %"
+                    title="Close Rate"
                     value={mySheetRow.closeRate != null ? Number(mySheetRow.closeRate.toFixed(1)) : 0}
-                    color="success"
                     icon={ThumbsUp}
                     showButtons={false}
-                    subtitle={mySheetRow.closeRate != null ? `Floor: ${effectiveSheetRow.floorAvgCloseRate}%` : undefined}
+                    floorValue={mySheetRow.closeRate != null ? effectiveSheetRow.floorAvgCloseRate : undefined}
+                    unit="%"
                   />
                 </div>
+                {/* All other metrics */}
+                <details className="group">
+                  <summary className="text-[11px] font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors flex items-center gap-1 py-1">
+                    <svg className="h-3 w-3 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 6L14 10L6 14V6Z" clipRule="evenodd"/></svg>
+                    All other metrics
+                  </summary>
+                  <div className="space-y-2 pt-1">
+                    <div className="grid grid-cols-4 gap-2">
+                      <MetricCard
+                        title="Escalation"
+                        value={mySheetRow.escalationRate != null ? Number(mySheetRow.escalationRate.toFixed(1)) : 0}
+                        icon={ThumbsDown}
+                        showButtons={false}
+                        lowerIsBetter
+                        floorValue={mySheetRow.escalationRate != null ? effectiveSheetRow.floorAvgEscalationRate : undefined}
+                        unit="%"
+                      />
+                      <MetricCard
+                        title="Adherence"
+                        value={mySheetRow.adherence != null ? Number(mySheetRow.adherence.toFixed(1)) : 0}
+                        icon={ThumbsUp}
+                        showButtons={false}
+                        floorValue={mySheetRow.adherence != null ? effectiveSheetRow.floorAvgAdherence : undefined}
+                        unit="%"
+                      />
+                      <MetricCard
+                        title="IRT"
+                        value={mySheetRow.irtReplier != null ? Number(mySheetRow.irtReplier.toFixed(1)) : 0}
+                        icon={AlertTriangle}
+                        showButtons={false}
+                        lowerIsBetter
+                        floorValue={mySheetRow.irtReplier != null ? effectiveSheetRow.floorAvgIrtReplier : undefined}
+                      />
+                      <MetricCard
+                        title="FCR"
+                        value={mySheetRow.fcr != null ? Number(mySheetRow.fcr.toFixed(1)) : 0}
+                        icon={ThumbsUp}
+                        showButtons={false}
+                        floorValue={mySheetRow.fcr != null ? effectiveSheetRow.floorAvgFcr : undefined}
+                        unit="%"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <MetricCard
+                        title="Closed After Res."
+                        value={mySheetRow.closedAfterResolution != null ? Number(mySheetRow.closedAfterResolution.toFixed(1)) : 0}
+                        icon={ThumbsUp}
+                        showButtons={false}
+                        floorValue={mySheetRow.closedAfterResolution != null ? effectiveSheetRow.floorAvgClosedAfterResolution : undefined}
+                        unit="%"
+                      />
+                      <MetricCard
+                        title="Break Exceed"
+                        value={mySheetRow.breakExceed != null ? Number(mySheetRow.breakExceed.toFixed(1)) : 0}
+                        icon={ThumbsDown}
+                        showButtons={false}
+                        lowerIsBetter
+                        floorValue={mySheetRow.breakExceed != null ? effectiveSheetRow.floorAvgBreakExceed : undefined}
+                      />
+                      <MetricCard
+                        title="Idle Time"
+                        value={mySheetRow.idleTime != null ? Number(mySheetRow.idleTime.toFixed(1)) : 0}
+                        icon={ThumbsDown}
+                        showButtons={false}
+                        lowerIsBetter
+                        floorValue={mySheetRow.idleTime != null ? effectiveSheetRow.floorAvgIdleTime : undefined}
+                      />
+                      <MetricCard
+                        title="De-escalation"
+                        value={mySheetRow.deescalationRate != null ? Number(mySheetRow.deescalationRate.toFixed(1)) : 0}
+                        icon={ThumbsDown}
+                        showButtons={false}
+                        lowerIsBetter
+                        floorValue={mySheetRow.deescalationRate != null ? effectiveSheetRow.floorAvgDeescalationRate : undefined}
+                        unit="%"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <MetricCard
+                        title="Occupancy"
+                        value={mySheetRow.occupancy != null ? Number(mySheetRow.occupancy.toFixed(1)) : 0}
+                        icon={ThumbsUp}
+                        showButtons={false}
+                        floorValue={mySheetRow.occupancy != null ? effectiveSheetRow.floorAvgOccupancy : undefined}
+                        unit="%"
+                      />
+                      <MetricCard
+                        title="Avg Group Basket Time"
+                        value={mySheetRow.avgGroupBasketTime != null ? Number(mySheetRow.avgGroupBasketTime.toFixed(1)) : 0}
+                        icon={AlertTriangle}
+                        showButtons={false}
+                        lowerIsBetter
+                        floorValue={mySheetRow.avgGroupBasketTime != null ? effectiveSheetRow.floorAvgAvgGroupBasketTime : undefined}
+                        unit="s"
+                      />
+                    </div>
+                  </div>
+                </details>
               </div>
             )}
 
@@ -1457,50 +1471,60 @@ const Index = () => {
               </div>
             )}
 
-            {/* Local Tracking: Counters (user-entered data) */}
-            <div className="space-y-2">
-              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <Lock className="h-3 w-3 text-muted-foreground/50" />
-                My Tracking (local)
-              </h3>
-              <div className="grid grid-cols-3 gap-2">
-                <MetricCard
-                  title="Good"
-                  value={totalGood}
-                  color="success"
-                  icon={ThumbsUp}
-                  showButtons={false}
-                />
-                <MetricCard
-                  title="DSAT"
-                  value={totalBad}
-                  color="destructive"
-                  icon={ThumbsDown}
-                  showButtons={false}
-                />
-                <MetricCard
-                  title="Karma"
-                  value={data.karmaBad}
-                  color="warning"
-                  icon={AlertTriangle}
-                  showButtons={false}
-                />
+            {/* Survey counts from Sheet */}
+            {myKscatRow && (
+              <div className="space-y-2">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-primary/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                  From Sheet
+                </h3>
+                <div className="grid grid-cols-4 gap-2">
+                  <MetricCard
+                    title="Good"
+                    value={myKscatRow.csatCount ?? 0}
+                    color="success"
+                    icon={ThumbsUp}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Bad"
+                    value={myKscatRow.dsatCount ?? 0}
+                    color="destructive"
+                    icon={ThumbsDown}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Karma"
+                    value={myKscatRow.kscatCount ?? 0}
+                    color="warning"
+                    icon={AlertTriangle}
+                    showButtons={false}
+                  />
+                  <MetricCard
+                    title="Total"
+                    value={myKscatRow.totalCount ?? 0}
+                    color="primary"
+                    icon={Lock}
+                    showButtons={false}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Below here hidden in Focus Mode */}
             {!focusMode && (
               <>
                 {/* Daily Target */}
                 <DailyTarget
-                  currentGood={totalGood}
-                  totalNegatives={totalBad}
-                  karmaBad={data.karmaBad}
+                  currentGood={myKscatRow?.csatCount ?? totalGood}
+                  totalNegatives={myKscatRow?.dsatCount ?? totalBad}
+                  karmaBad={myKscatRow?.kscatCount ?? data.karmaBad}
                   selectedMonth={selectedMonth}
                   selectedYear={selectedYear}
                   todayGood={todayStats.good}
                   todayBad={todayStats.bad}
                   remainingWorkingDays={remainingWorkingDays}
+                  sheetCsat={effectiveSheetRow?.csat ?? mySheetRow?.csat ?? null}
                 />
               </>
             )}

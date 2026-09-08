@@ -56,7 +56,7 @@ const DISPLAYED_METRICS: MetricDef[] = [
   { key: "closedAfterResolution",  label: "Closed After Res.",     unit: "%",  higherIsBetter: true,  floorKey: "closedAfterResolution" },
   { key: "breakExceed",            label: "Break Exceed",          unit: "",   higherIsBetter: false,  floorKey: "breakExceed" },
   { key: "idleTime",               label: "Idle Time",             unit: "",   higherIsBetter: false,  floorKey: "idleTime" },
-  { key: "deescalationRate",       label: "De-escalation Rate",    unit: "%",  higherIsBetter: true,  floorKey: "deescalationRate" },
+  { key: "deescalationRate",       label: "De-escalation Rate",    unit: "%",  higherIsBetter: false,  floorKey: "deescalationRate" },
   { key: "occupancy",              label: "Occupancy",             unit: "%",  higherIsBetter: true,  floorKey: "occupancy" },
   { key: "avgGroupBasketTime",     label: "Avg Group Basket Time", unit: "s",  higherIsBetter: false,  floorKey: "avgGroupBasketTime" },
   { key: "closeRate",              label: "Closed Tickets %",      unit: "%",  higherIsBetter: true,  floorKey: "closeRate" },
@@ -168,18 +168,30 @@ function LeaderboardRow({
             )}
           </div>
         </div>
-        <div className="flex gap-3 text-xs text-muted-foreground">
+        <div className="flex gap-3 text-xs">
           {member.csat !== null && (
-            <span className="w-12 text-right" title="CSAT">{member.csat}%</span>
+            <div className="flex flex-col items-center" title="CSAT">
+              <span className="text-[9px] text-muted-foreground/70">CSAT</span>
+              <span className="font-bold text-foreground">{member.csat}%</span>
+            </div>
           )}
           {member.productivity !== null && (
-            <span className="w-12 text-right" title="Productivity">{member.productivity}%</span>
-          )}
-          {member.closeRate !== null && (
-            <span className="w-14 text-right" title="Close Rate">{member.closeRate}%</span>
+            <div className="flex flex-col items-center" title="Productivity">
+              <span className="text-[9px] text-muted-foreground/70">Prod</span>
+              <span className="font-bold text-foreground">{member.productivity}%</span>
+            </div>
           )}
           {member.aht !== null && member.aht > 0 && (
-            <span className="w-10 text-right" title="ABT">{member.aht}s</span>
+            <div className="flex flex-col items-center" title="ABT">
+              <span className="text-[9px] text-muted-foreground/70">ABT</span>
+              <span className="font-bold text-foreground">{member.aht}s</span>
+            </div>
+          )}
+          {member.closeRate !== null && (
+            <div className="flex flex-col items-center" title="Close Rate">
+              <span className="text-[9px] text-muted-foreground/70">Close%</span>
+              <span className="font-bold text-foreground">{member.closeRate}%</span>
+            </div>
           )}
         </div>
         <div className="text-muted-foreground">
