@@ -13,7 +13,7 @@ fi
 
 export DISPLAY=:99
 export SUPABASE_URL="https://udbdvtcugpnrmtfipbzj.supabase.co"
-export SUPABASE_SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkYmR2dGN1Z3Bucm10ZmlwYnpqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODMxNjg1NywiZXhwIjoyMDkzODkyODU3fQ.0BsAPz9sdAZHB9ac5F-mdaWM89nCu2lqAv61kfa14vM"
+export SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
 
 cd /mnt/ahmed/Projects/green-tab
 
