@@ -47,10 +47,7 @@
  * TEAM FILTERING:
  * ─────────────────────────────────────────────────────────────────
  * EXCLUDED from Chat Team ranking:
- * - Abdallah Abdallah (abdallah.abdallah@tabby.ai) — PHONE only
- * - Mohamed Mohamed (mohamed.mohamed.27@tabby.ai) — CONSULTATION team
- * - Ahmed Elkhodary (ahmed.radwan@tabby.ai) — TERMINATED
- * - Abdullah Riad (abdullah.mohamed@tabby.ai) — TERMINATED
+ * - Agents configured in EXCLUDED_FROM_CHAT_TEAM (for example phone-only or other-team agents)
  *
  * NEVER DISPLAY: Bamboo ID, Queue, ID_Name, Batch, Citrix user
  * IDENTIFY AGENTS BY: Email only (except logged-in user → use display name)
@@ -134,10 +131,7 @@ export interface TeamData {
  * Emails excluded from the Chat Team ranking and floor averages.
  */
 const EXCLUDED_FROM_CHAT_TEAM: Record<string, string> = {
-  "abdallah.abdallah@tabby.ai": "PHONE team only",
-  "mohamed.mohamed.27@tabby.ai": "CONSULTATION team",
-  "ahmed.radwan@tabby.ai": "TERMINATED",
-  "abdullah.mohamed@tabby.ai": "TERMINATED",
+  // "agent@example.com": "reason for exclusion",
 };
 
 /**
