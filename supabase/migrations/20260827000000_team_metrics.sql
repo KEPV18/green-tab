@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.team_metrics (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   month TEXT NOT NULL,                        -- e.g., "August 2026" or "2026-08"
   report_date DATE,                           -- e.g., 2026-08-01 (first of month)
-  agent_email TEXT NOT NULL,                  -- e.g., "ahmed.ahmed.5@tabby.ai"
+  agent_email TEXT NOT NULL,                  -- e.g., "agent@example.com"
   agent_name TEXT NOT NULL DEFAULT '',         -- e.g., "Ahmed Ahmed"
   bamboo_id TEXT,                              -- e.g., "14996" from Tab0, NULL if unknown
   team_lead TEXT,                              -- e.g., "Mohamed Gabry", NULL if unknown
