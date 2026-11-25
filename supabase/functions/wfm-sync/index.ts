@@ -18,7 +18,7 @@ serve(async (req: Request) => {
     // Mode 1: Client sends pre-fetched schedule data directly
     if (schedules && Array.isArray(schedules) && schedules.length > 0) {
       // Client already fetched WFM data and is sending it to us for storage
-      // This mode works because the browser can access wfm.tabby.ai with Cloudflare cookies
+      // This mode works because the browser can access your WFM system with its own session cookies
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
@@ -117,7 +117,15 @@ serve(async (req: Request) => {
       );
     }
 
-    // Try to fetch from WFM API server-side
+    // Try to fetch from WFM API server-side.
+    // REQUIRED private configuration: set WFM_BASE_URL (for example https://wfm.your-company.example) as a function secret.
+    const wfmBase = Deno.env.get("WFM_BASE_URL");
+    if (!wfmBase) {
+      return new Response(
+        JSON.stringify({ error: "WFM_BASE_URL is not configured" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
@@ -127,7 +135,7 @@ serve(async (req: Request) => {
       const actualYear = m > 12 ? year + 1 : year;
       const actualMonth = m > 12 ? 1 : m;
 
-      const url = `https://wfm.tabby.ai/api/schedules?year=${actualYear}&month=${actualMonth}`;
+      const url = `${wfmBase}/api/schedules?year=${actualYear}&month=${actualMonth}`;
       const headers: Record<string, string> = {
         "Cookie": authCookie,
         "Accept": "application/json",
