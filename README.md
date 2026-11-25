@@ -28,6 +28,12 @@ This public copy contains no real team data. Data files, employee details and cr
 
 Scripts in `scripts/` fetch metrics and upsert them into Supabase. They read the service key from the `SUPABASE_SERVICE_ROLE_KEY` environment variable. Never commit that key.
 
+## Required private configuration
+
+- `wfm-sync` edge function: set the `WFM_BASE_URL` function secret to your own workforce-management system URL. The function returns an error if it is not set.
+- `EXCLUDED_FROM_CHAT_TEAM` in `src/lib/googleSheets.ts` is an empty list in this public copy. Add the agents you want excluded from team ranking, otherwise everyone is counted. The original private version had entries here, so this copy does not behave identically to it.
+- You need your own data source. The bundled sample data was removed and no demo dataset is included yet.
+
 ## Notes
 
 - Built with AI assistance, then reviewed and adjusted by me.
